@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from lightspeed_agentic.routes import build_router
-from lightspeed_agentic.types import ResultEvent, TextDeltaEvent, ToolCallEvent, ToolResultEvent
+from lightspeed_agentic.types import ResultEvent, TextDeltaEvent
 
 from .conftest import MockProvider, StreamingMockProvider
 

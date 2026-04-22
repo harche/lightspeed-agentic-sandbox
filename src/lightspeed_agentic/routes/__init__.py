@@ -13,7 +13,7 @@ from fastapi import APIRouter
 
 from lightspeed_agentic.routes.chat import register_chat_routes
 from lightspeed_agentic.routes.query import register_query_routes
-from lightspeed_agentic.types import AgentProvider
+from lightspeed_agentic.types import DEFAULT_MODEL, AgentProvider
 
 
 def build_router(
@@ -44,7 +44,7 @@ def build_router(
         router,
         provider=provider,
         skills_dir=skills_dir,
-        model=model or "claude-opus-4-6",
+        model=model or DEFAULT_MODEL,
         max_turns=chat_max_turns,
         timeout_ms=chat_timeout_ms,
         max_budget_usd=chat_max_budget_usd,

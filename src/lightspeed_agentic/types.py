@@ -1,9 +1,20 @@
 from __future__ import annotations
 
+import json
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any, Literal
+
+TOOL_INPUT_MAX_CHARS = 300
+TOOL_OUTPUT_MAX_CHARS = 500
+DEFAULT_MODEL = "claude-opus-4-6"
+
+
+def stringify(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    return json.dumps(value) if value else ""
 
 
 @dataclass(frozen=True)

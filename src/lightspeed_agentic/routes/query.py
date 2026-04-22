@@ -16,7 +16,8 @@ from fastapi import APIRouter
 
 from lightspeed_agentic.logging import log_provider_event
 from lightspeed_agentic.routes.models import QueryRequest, QueryResponse
-from lightspeed_agentic.types import AgentProvider, ProviderQueryOptions
+from lightspeed_agentic.tools import DEFAULT_ALLOWED_TOOLS
+from lightspeed_agentic.types import DEFAULT_MODEL, AgentProvider, ProviderQueryOptions
 
 logger = logging.getLogger("lightspeed_agentic")
 
@@ -76,7 +77,7 @@ async def _handle_query(
             model=model,
             max_turns=max_turns,
             max_budget_usd=5.0,
-            allowed_tools=["Bash", "Read", "Glob", "Grep", "Skill"],
+            allowed_tools=DEFAULT_ALLOWED_TOOLS,
             cwd=skills_dir,
             output_schema=req.outputSchema,
         ))
@@ -142,7 +143,7 @@ def register_query_routes(
     analysis_timeout_ms: int,
     execution_timeout_ms: int,
 ) -> None:
-    resolved_model = model or os.environ.get("ANTHROPIC_MODEL", "claude-opus-4-6")
+    resolved_model = model or os.environ.get("ANTHROPIC_MODEL", DEFAULT_MODEL)
     timeouts = {"analysis": analysis_timeout_ms, "execution": execution_timeout_ms}
 
     for path, phase in _PHASE_ENDPOINTS:

@@ -1,7 +1,5 @@
 """Tests for provider factory."""
 
-import os
-
 import pytest
 
 from lightspeed_agentic.factory import create_provider
