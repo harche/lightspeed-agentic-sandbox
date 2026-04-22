@@ -1,5 +1,7 @@
 """Tests for event types and AgentProvider interface."""
 
+import pytest
+
 from lightspeed_agentic.types import (
     ContentBlockStopEvent,
     ProviderQueryOptions,
@@ -49,11 +51,8 @@ def test_result_event():
 
 def test_events_are_frozen():
     e = TextDeltaEvent(text="hello")
-    try:
+    with pytest.raises(AttributeError):
         e.text = "changed"  # type: ignore[misc]
-        assert False, "Should raise"
-    except AttributeError:
-        pass
 
 
 def test_query_options_defaults():

@@ -1,12 +1,6 @@
 """OpenAI provider — wraps openai-agents SDK.
 
 Maps to lightspeed-agent/src/providers/openai.ts.
-
-Key differences from the TS version:
-  - Shell: ShellTool with ShellExecutor callable (same pattern, Python native)
-  - Skills: ShellToolLocalSkill dicts on environment.skills (native)
-  - Structured output: output_type=PydanticModel (native, works with tools)
-  - Streaming: Runner.run_streamed() → stream_events() async iterator
 """
 
 from __future__ import annotations
@@ -15,15 +9,16 @@ import asyncio
 import json
 import os
 from collections.abc import AsyncIterator
-from pathlib import Path
+from typing import Any
 
 from lightspeed_agentic.tools import (
-    augment_system_prompt,
     discover_openai_skills,
     parse_bash_restrictions,
     validate_bash_command,
 )
 from lightspeed_agentic.types import (
+    TOOL_INPUT_MAX_CHARS,
+    TOOL_OUTPUT_MAX_CHARS,
     AgentProvider,
     ContentBlockStopEvent,
     ProviderEvent,
@@ -32,11 +27,30 @@ from lightspeed_agentic.types import (
     TextDeltaEvent,
     ToolCallEvent,
     ToolResultEvent,
+    stringify,
 )
 
 
-def _build_shell_executor(cwd: str, patterns: list[str] | None) -> object:
-    """Build a ShellExecutor callable for OpenAI's ShellTool."""
+def _extract_tokens(usage: Any) -> tuple[int, int]:
+    if hasattr(usage, "input_tokens"):
+        return getattr(usage, "input_tokens", 0), getattr(usage, "output_tokens", 0)
+    if isinstance(usage, dict):
+        return usage.get("input_tokens", 0), usage.get("output_tokens", 0)
+    return 0, 0
+
+
+def _build_result(result: Any) -> ResultEvent:
+    usage = getattr(result, "usage", None) or {}
+    input_tokens, output_tokens = _extract_tokens(usage)
+    return ResultEvent(
+        text=stringify(result.final_output),
+        cost_usd=0,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+    )
+
+
+def _build_shell_executor(cwd: str, patterns: list[str] | None) -> Any:
     from agents import ShellCallOutcome, ShellCommandOutput, ShellCommandRequest, ShellResult
 
     async def executor(request: ShellCommandRequest) -> ShellResult:
@@ -56,7 +70,6 @@ def _build_shell_executor(cwd: str, patterns: list[str] | None) -> object:
             proc = await asyncio.create_subprocess_shell(
                 command,
                 cwd=cwd,
-                env=os.environ.copy(),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -93,32 +106,34 @@ def _build_shell_executor(cwd: str, patterns: list[str] | None) -> object:
     return executor
 
 
-def _build_output_type(schema: dict) -> type | None:
-    """Convert a JSON Schema dict to a Pydantic model for structured output."""
-    try:
-        from pydantic import create_model
+def _build_output_schema(schema: dict[str, Any]) -> Any:
+    """Wrap raw JSON Schema for the OpenAI SDK's AgentOutputSchemaBase."""
+    from agents.agent_output import AgentOutputSchemaBase
+    from agents.exceptions import ModelBehaviorError
 
-        properties = schema.get("properties", {})
-        required = set(schema.get("required", []))
-        field_definitions: dict = {}
+    class RawJsonSchemaOutput(AgentOutputSchemaBase):
+        def __init__(self, json_schema: dict[str, Any]) -> None:
+            self._schema = json_schema
 
-        type_map = {"string": str, "integer": int, "number": float, "boolean": bool}
+        def is_plain_text(self) -> bool:
+            return False
 
-        for field_name, field_schema in properties.items():
-            field_type = type_map.get(field_schema.get("type", "string"), str)
-            if field_schema.get("type") == "array":
-                field_type = list
-            elif field_schema.get("type") == "object":
-                field_type = dict
+        def name(self) -> str:
+            return "agent_output"
 
-            if field_name in required:
-                field_definitions[field_name] = (field_type, ...)
-            else:
-                field_definitions[field_name] = (field_type | None, None)
+        def json_schema(self) -> dict[str, Any]:
+            return self._schema
 
-        return create_model("AgentOutput", **field_definitions)
-    except Exception:
-        return None
+        def is_strict_json_schema(self) -> bool:
+            return True
+
+        def validate_json(self, json_str: str) -> Any:
+            try:
+                return json.loads(json_str)
+            except json.JSONDecodeError as e:
+                raise ModelBehaviorError(f"Invalid JSON output: {e}") from e
+
+    return RawJsonSchemaOutput(schema)
 
 
 class OpenAIProvider(AgentProvider):
@@ -131,7 +146,7 @@ class OpenAIProvider(AgentProvider):
 
         bash_allowed, patterns = parse_bash_restrictions(options.allowed_tools)
 
-        tools: list[object] = []
+        tools: list[Any] = []
         if bash_allowed or "Skill" in options.allowed_tools:
             executor = _build_shell_executor(options.cwd, patterns)
             skills = (
@@ -139,7 +154,7 @@ class OpenAIProvider(AgentProvider):
                 if "Skill" in options.allowed_tools
                 else []
             )
-            environment: dict = {"type": "local"}
+            environment: dict[str, Any] = {"type": "local"}
             if skills:
                 environment["skills"] = skills
 
@@ -149,18 +164,14 @@ class OpenAIProvider(AgentProvider):
                 needs_approval=False,
             ))
 
-        system_prompt = augment_system_prompt(options.system_prompt, options.cwd)
-
-        output_type = None
-        if options.output_schema:
-            output_type = _build_output_type(options.output_schema)
+        output_schema = _build_output_schema(options.output_schema) if options.output_schema else None
 
         agent = Agent(
             name="lightspeed",
-            instructions=system_prompt,
+            instructions=options.system_prompt,
             model=options.model,
             tools=tools,
-            **({"output_type": output_type} if output_type else {}),
+            **({"output_type": output_schema} if output_schema else {}),
         )
 
         if options.stream:
@@ -187,46 +198,18 @@ class OpenAIProvider(AgentProvider):
                             name=getattr(item, "name", "unknown"),
                             input=json.dumps(
                                 getattr(item, "arguments", {}) or {}
-                            )[:300],
+                            )[:TOOL_INPUT_MAX_CHARS],
                         )
                     elif item_type == "tool_call_output_item":
                         yield ToolResultEvent(
-                            output=(getattr(item, "output", "") or "")[:500]
+                            output=(getattr(item, "output", "") or "")[:TOOL_OUTPUT_MAX_CHARS]
                         )
 
             yield ContentBlockStopEvent()
-
-            final_output = result.final_output
-            text = (
-                final_output
-                if isinstance(final_output, str)
-                else json.dumps(final_output) if final_output else ""
-            )
-            usage = getattr(result, "usage", None) or {}
-
-            yield ResultEvent(
-                text=text,
-                cost_usd=0,
-                input_tokens=getattr(usage, "input_tokens", 0) if hasattr(usage, "input_tokens") else usage.get("input_tokens", 0) if isinstance(usage, dict) else 0,
-                output_tokens=getattr(usage, "output_tokens", 0) if hasattr(usage, "output_tokens") else usage.get("output_tokens", 0) if isinstance(usage, dict) else 0,
-            )
+            yield _build_result(result)
 
         else:
             result = await Runner.run(
                 agent, options.prompt, max_turns=options.max_turns
             )
-
-            final_output = result.final_output
-            text = (
-                final_output
-                if isinstance(final_output, str)
-                else json.dumps(final_output) if final_output else ""
-            )
-            usage = getattr(result, "usage", None) or {}
-
-            yield ResultEvent(
-                text=text,
-                cost_usd=0,
-                input_tokens=getattr(usage, "input_tokens", 0) if hasattr(usage, "input_tokens") else usage.get("input_tokens", 0) if isinstance(usage, dict) else 0,
-                output_tokens=getattr(usage, "output_tokens", 0) if hasattr(usage, "output_tokens") else usage.get("output_tokens", 0) if isinstance(usage, dict) else 0,
-            )
+            yield _build_result(result)

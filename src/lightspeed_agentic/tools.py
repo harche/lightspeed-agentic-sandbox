@@ -1,12 +1,4 @@
-"""Shared tool executors and utilities for non-Claude providers.
-
-Claude's SDK has built-in tools. Gemini and OpenAI need us to provide tool
-implementations — but each SDK wires them differently:
-  - Gemini ADK: auto-wraps plain Python callables via type hints
-  - OpenAI Agents: uses ShellTool with a ShellExecutor callable
-
-This module provides the raw executors and helpers both providers import.
-"""
+"""Shared tool executors and utilities for non-Claude providers."""
 
 from __future__ import annotations
 
@@ -17,17 +9,10 @@ import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
-
-# ---------------------------------------------------------------------------
-# Bash restrictions — shared by Gemini and OpenAI providers
-# ---------------------------------------------------------------------------
+DEFAULT_ALLOWED_TOOLS = ["Bash", "Read", "Glob", "Grep", "Skill"]
 
 
 def parse_bash_restrictions(allowed_tools: list[str]) -> tuple[bool, list[str] | None]:
-    """Parse allowedTools for Bash restrictions.
-
-    Returns (bash_allowed, patterns) where patterns=None means unrestricted.
-    """
     bash_entries = [t for t in allowed_tools if t == "Bash" or t.startswith("Bash(")]
     if not bash_entries:
         return False, []
@@ -48,11 +33,6 @@ def validate_bash_command(command: str, patterns: list[str] | None) -> bool:
     return any(trimmed.startswith(p + " ") or trimmed == p for p in patterns)
 
 
-# ---------------------------------------------------------------------------
-# Raw executors — used by Gemini tool functions and OpenAI ShellExecutor
-# ---------------------------------------------------------------------------
-
-
 def execute_bash(command: str, cwd: str, patterns: list[str] | None, timeout: int = 120) -> str:
     if not validate_bash_command(command, patterns):
         return f"Error: Command not allowed. Permitted prefixes: {', '.join(patterns or [])}"
@@ -63,7 +43,7 @@ def execute_bash(command: str, cwd: str, patterns: list[str] | None, timeout: in
             cwd=cwd,
             capture_output=True,
             text=True,
-            timeout=timeout,
+            timeout=max(timeout, 1),
             executable="/bin/bash",
         )
         if result.returncode == 0:
@@ -77,10 +57,15 @@ def execute_bash(command: str, cwd: str, patterns: list[str] | None, timeout: in
 
 def execute_read(file_path: str, offset: int = 0, limit: int | None = None) -> str:
     try:
-        text = Path(file_path).read_text()
-        lines = text.split("\n")
-        end = offset + limit if limit else len(lines)
-        return "\n".join(f"{offset + i + 1}\t{line}" for i, line in enumerate(lines[offset:end]))
+        with open(file_path) as f:
+            lines: list[str] = []
+            for i, line in enumerate(f):
+                if i < offset:
+                    continue
+                if limit is not None and len(lines) >= limit:
+                    break
+                lines.append(f"{offset + len(lines) + 1}\t{line.rstrip(chr(10))}")
+            return "\n".join(lines)
     except Exception as e:
         return f"Error reading file: {e}"
 
@@ -134,14 +119,6 @@ def execute_grep(
         return f"Error: {e}"
 
 
-# ---------------------------------------------------------------------------
-# Gemini: build plain Python tool functions with captured cwd/restrictions
-#
-# ADK auto-wraps callables — it reads __name__, __doc__, and __annotations__
-# to generate FunctionDeclarations. We return closures with correct signatures.
-# ---------------------------------------------------------------------------
-
-
 def build_gemini_tools(
     allowed_tools: list[str], cwd: str
 ) -> list[Callable[..., str]]:
@@ -191,33 +168,15 @@ def build_gemini_tools(
     return tools
 
 
-# ---------------------------------------------------------------------------
-# System prompt augmentation — prepend CLAUDE.md for non-Claude providers
-# ---------------------------------------------------------------------------
+def resolve_skills_dir(skills_dir: str) -> str:
+    skills_subdir = os.path.join(skills_dir, "skills")
+    return skills_subdir if os.path.isdir(skills_subdir) else skills_dir
 
-
-def augment_system_prompt(system_prompt: str, cwd: str) -> str:
-    claude_md = os.path.join(cwd, "CLAUDE.md")
-    try:
-        project_settings = Path(claude_md).read_text()
-        return f"## Project Settings\n{project_settings}\n\n{system_prompt}"
-    except OSError:
-        return system_prompt
-
-
-# ---------------------------------------------------------------------------
-# Minimal SKILL.md discovery — for OpenAI's ShellToolLocalSkill dicts
-#
-# OpenAI's ShellTool accepts {"name": ..., "description": ..., "path": str}
-# but doesn't auto-discover from a directory. We parse SKILL.md frontmatter
-# for name+description only — the SDK handles everything else.
-# ---------------------------------------------------------------------------
 
 
 def discover_openai_skills(skills_dir: str) -> list[dict[str, str]]:
     skills: list[dict[str, str]] = []
-    skills_subdir = os.path.join(skills_dir, "skills")
-    target_dir = skills_subdir if os.path.isdir(skills_subdir) else skills_dir
+    target_dir = resolve_skills_dir(skills_dir)
 
     try:
         entries = sorted(os.listdir(target_dir))

@@ -2,9 +2,9 @@
 
 import os
 import tempfile
+from pathlib import Path
 
 from lightspeed_agentic.tools import (
-    augment_system_prompt,
     build_gemini_tools,
     discover_openai_skills,
     execute_bash,
@@ -94,12 +94,13 @@ class TestExecutors:
             result = execute_write(path, "hello world")
             assert "Wrote" in result
             assert os.path.exists(path)
-            assert open(path).read() == "hello world"
+            with open(path) as f:
+                assert f.read() == "hello world"
 
     def test_execute_glob(self):
         with tempfile.TemporaryDirectory() as d:
-            open(os.path.join(d, "a.txt"), "w").close()
-            open(os.path.join(d, "b.py"), "w").close()
+            Path(os.path.join(d, "a.txt")).touch()
+            Path(os.path.join(d, "b.py")).touch()
             result = execute_glob("*.txt", d)
             assert "a.txt" in result
             assert "b.py" not in result
@@ -136,20 +137,6 @@ class TestGeminiTools:
     def test_empty_allowed_tools(self):
         tools = build_gemini_tools([], "/tmp")
         assert tools == []
-
-
-class TestAugmentSystemPrompt:
-    def test_prepends_claude_md(self):
-        with tempfile.TemporaryDirectory() as d:
-            open(os.path.join(d, "CLAUDE.md"), "w").write("# Project\nDo stuff")
-            result = augment_system_prompt("You are an agent.", d)
-            assert result.startswith("## Project Settings\n# Project")
-            assert "You are an agent." in result
-
-    def test_no_claude_md(self):
-        with tempfile.TemporaryDirectory() as d:
-            result = augment_system_prompt("You are an agent.", d)
-            assert result == "You are an agent."
 
 
 class TestDiscoverOpenAISkills:

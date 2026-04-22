@@ -1,12 +1,6 @@
 """Gemini provider — wraps google-adk.
 
 Maps to lightspeed-agent/src/providers/gemini.ts.
-
-Key differences from the TS version:
-  - Tools: plain Python callables (ADK auto-wraps via type hints)
-  - Skills: native SkillToolset with load_skill_from_dir()
-  - Streaming: RunConfig(streaming_mode=StreamingMode.SSE) → event.partial
-  - output_schema disables tools in ADK — we embed schema in prompt instead
 """
 
 from __future__ import annotations
@@ -15,9 +9,12 @@ import json
 import pathlib
 import time
 from collections.abc import AsyncIterator
+from typing import Any
 
-from lightspeed_agentic.tools import augment_system_prompt, build_gemini_tools
+from lightspeed_agentic.tools import build_gemini_tools, resolve_skills_dir
 from lightspeed_agentic.types import (
+    TOOL_INPUT_MAX_CHARS,
+    TOOL_OUTPUT_MAX_CHARS,
     AgentProvider,
     ContentBlockStopEvent,
     ProviderEvent,
@@ -26,18 +23,16 @@ from lightspeed_agentic.types import (
     TextDeltaEvent,
     ToolCallEvent,
     ToolResultEvent,
+    stringify,
 )
 
 
-def _load_skills_toolset(skills_dir: str) -> object | None:
+def _load_skills_toolset(skills_dir: str) -> Any:
     try:
         from google.adk.skills import list_skills_in_dir
         from google.adk.tools.skill_toolset import SkillToolset
 
-        skills_path = pathlib.Path(skills_dir)
-        skills_subdir = skills_path / "skills"
-        target = skills_subdir if skills_subdir.is_dir() else skills_path
-
+        target = pathlib.Path(resolve_skills_dir(skills_dir))
         skills = list_skills_in_dir(target)
         if skills:
             return SkillToolset(skills=skills)
@@ -59,29 +54,24 @@ class GeminiProvider(AgentProvider):
         from google.genai import types
 
         tool_functions = build_gemini_tools(options.allowed_tools, options.cwd)
-        tools: list[object] = list(tool_functions)
+        tools: list[Any] = list(tool_functions)
 
         if "Skill" in options.allowed_tools:
             skill_toolset = _load_skills_toolset(options.cwd)
             if skill_toolset is not None:
                 tools.append(skill_toolset)
 
-        system_prompt = augment_system_prompt(options.system_prompt, options.cwd)
+        agent_kwargs: dict[str, Any] = {
+            "name": "lightspeed",
+            "model": options.model,
+            "instruction": options.system_prompt,
+            "tools": tools,
+        }
 
-        # ADK's output_schema disables tools — embed schema in prompt instead
         if options.output_schema:
-            system_prompt += (
-                "\n\nYou MUST respond with valid JSON matching this schema:\n"
-                f"```json\n{json.dumps(options.output_schema, indent=2)}\n```\n"
-                "Output ONLY the JSON object, no other text."
-            )
+            agent_kwargs["output_schema"] = options.output_schema
 
-        agent = Agent(
-            name="lightspeed",
-            model=options.model,
-            instruction=system_prompt,
-            tools=tools,
-        )
+        agent = Agent(**agent_kwargs)
 
         session_service = InMemorySessionService()
         runner = Runner(
@@ -117,35 +107,30 @@ class GeminiProvider(AgentProvider):
             if not event.content or not event.content.parts:
                 continue
 
+            is_partial = getattr(event, "partial", False)
+
             for part in event.content.parts:
                 if hasattr(part, "text") and part.text:
-                    if options.stream and getattr(event, "partial", False):
+                    if options.stream and is_partial:
                         yield TextDeltaEvent(text=part.text)
-                    result_text = part.text if not getattr(event, "partial", False) else result_text
+                    if not is_partial and not event.get_function_calls():
+                        result_text = part.text
 
                 if hasattr(part, "function_call") and part.function_call:
                     fc = part.function_call
                     yield ToolCallEvent(
                         name=fc.name,
-                        input=json.dumps(dict(fc.args) if fc.args else {})[:300],
+                        input=json.dumps(dict(fc.args) if fc.args else {})[:TOOL_INPUT_MAX_CHARS],
                     )
 
                 if hasattr(part, "function_response") and part.function_response:
                     fr = part.function_response
-                    response = fr.response
-                    output = response if isinstance(response, str) else json.dumps(response)
-                    yield ToolResultEvent(output=output[:500])
+                    yield ToolResultEvent(output=stringify(fr.response)[:TOOL_OUTPUT_MAX_CHARS])
 
             usage = getattr(event, "usage_metadata", None)
             if usage:
                 total_input_tokens = getattr(usage, "prompt_token_count", 0) or 0
                 total_output_tokens = getattr(usage, "candidates_token_count", 0) or 0
-
-            # Accumulate final text from non-partial events
-            if not getattr(event, "partial", False) and event.content and event.content.parts:
-                for part in event.content.parts:
-                    if hasattr(part, "text") and part.text and not event.get_function_calls():
-                        result_text = part.text
 
         if options.stream:
             yield ContentBlockStopEvent()

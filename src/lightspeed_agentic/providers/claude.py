@@ -1,12 +1,6 @@
 """Claude provider — wraps claude-agent-sdk.
 
 Maps to lightspeed-agent/src/providers/claude.ts.
-
-The SDK handles everything natively:
-  - Tools: built-in (Bash, Read, Glob, Grep, Skill)
-  - Skills: auto-discovered via skills parameter
-  - Structured output: output_format → ResultMessage.structured_output
-  - Streaming: include_partial_messages → StreamEvent with raw API deltas
 """
 
 from __future__ import annotations
@@ -15,6 +9,8 @@ import json
 from collections.abc import AsyncIterator
 
 from lightspeed_agentic.types import (
+    TOOL_INPUT_MAX_CHARS,
+    TOOL_OUTPUT_MAX_CHARS,
     AgentProvider,
     ContentBlockStopEvent,
     ProviderEvent,
@@ -24,6 +20,7 @@ from lightspeed_agentic.types import (
     ThinkingDeltaEvent,
     ToolCallEvent,
     ToolResultEvent,
+    stringify,
 )
 
 
@@ -75,27 +72,24 @@ class ClaudeProvider(AgentProvider):
                     if getattr(block, "type", None) == "tool_use":
                         yield ToolCallEvent(
                             name=getattr(block, "name", ""),
-                            input=json.dumps(getattr(block, "input", {}))[:300],
+                            input=json.dumps(getattr(block, "input", {}))[:TOOL_INPUT_MAX_CHARS],
                         )
 
             if getattr(msg, "type", None) == "tool":
                 for block in getattr(msg, "content", []):
                     if getattr(block, "type", None) == "tool_result":
-                        content = getattr(block, "content", "")
-                        output = content if isinstance(content, str) else json.dumps(content)
-                        yield ToolResultEvent(output=output[:500])
+                        yield ToolResultEvent(
+                            output=stringify(getattr(block, "content", ""))[:TOOL_OUTPUT_MAX_CHARS],
+                        )
 
             if isinstance(msg, ResultMessage):
-                text = ""
                 structured = getattr(msg, "structured_output", None)
-                if structured is not None:
-                    text = structured if isinstance(structured, str) else json.dumps(structured)
-                elif getattr(msg, "result", None):
-                    text = msg.result
+                text = stringify(structured) if structured is not None else (getattr(msg, "result", None) or "")
 
+                usage = getattr(msg, "usage", None)
                 yield ResultEvent(
                     text=text,
                     cost_usd=getattr(msg, "total_cost_usd", 0) or 0,
-                    input_tokens=getattr(getattr(msg, "usage", None), "input_tokens", 0),
-                    output_tokens=getattr(getattr(msg, "usage", None), "output_tokens", 0),
+                    input_tokens=getattr(usage, "input_tokens", 0) if usage else 0,
+                    output_tokens=getattr(usage, "output_tokens", 0) if usage else 0,
                 )

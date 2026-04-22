@@ -1,7 +1,4 @@
-"""SSE chat endpoint — maps to lightspeed-agent/src/chat.ts.
-
-Streaming chat with fence-aware text buffering for inline UI components.
-"""
+"""SSE chat endpoint — maps to lightspeed-agent/src/chat.ts."""
 
 from __future__ import annotations
 
@@ -9,6 +6,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -17,14 +15,10 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from lightspeed_agentic.tools import DEFAULT_ALLOWED_TOOLS
 from lightspeed_agentic.types import AgentProvider, ProviderQueryOptions
 
 logger = logging.getLogger("lightspeed_agentic")
-
-
-# ---------------------------------------------------------------------------
-# Conversation store — maps to chat.ts conversation management
-# ---------------------------------------------------------------------------
 
 _MAX_CONVERSATIONS = 100
 _CONVERSATION_TTL_S = 3600
@@ -47,8 +41,6 @@ _conversations: dict[str, _Conversation] = {}
 
 
 def _cleanup() -> None:
-    import time
-
     now = time.time()
     expired = [k for k, v in _conversations.items() if now - v.last_accessed_at > _CONVERSATION_TTL_S]
     for k in expired:
@@ -60,8 +52,6 @@ def _cleanup() -> None:
 
 
 def _get_or_create(conversation_id: str | None) -> _Conversation:
-    import time
-
     _cleanup()
     if conversation_id and conversation_id in _conversations:
         conv = _conversations[conversation_id]
@@ -72,29 +62,15 @@ def _get_or_create(conversation_id: str | None) -> _Conversation:
     return conv
 
 
-# ---------------------------------------------------------------------------
-# Chat request model
-# ---------------------------------------------------------------------------
-
-
 class ChatRequest(BaseModel, extra="allow"):
     message: str
     conversationId: str | None = None
     context: dict[str, Any]
 
 
-# ---------------------------------------------------------------------------
-# SSE formatting
-# ---------------------------------------------------------------------------
-
-
 def _sse_event(event: str, data: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
-
-# ---------------------------------------------------------------------------
-# Fence-aware text buffer — maps to chat.ts processTextBuffer/flushTextBuffer
-# ---------------------------------------------------------------------------
 
 _FENCE_OPEN = re.compile(r"```ui:(\w+)\n")
 _FENCE_PARTIAL = re.compile(r"`{1,3}(?:u(?:i(?::(?:\w+)?)?)?)?$")
@@ -105,7 +81,10 @@ class _FenceBuffer:
         self.buf = ""
         self.in_fence = False
         self.fence_type = ""
-        self.output: list[str] = []
+        self._pending: list[str] = []
+
+    def emit(self, event_str: str) -> None:
+        self._pending.append(event_str)
 
     def add(self, text: str) -> None:
         self.buf += text
@@ -122,16 +101,16 @@ class _FenceBuffer:
                 self.in_fence = False
                 try:
                     props = json.loads(json_str)
-                    self.output.append(_sse_event("ui_component", {"type": self.fence_type, "props": props}))
+                    self._pending.append(_sse_event("ui_component", {"type": self.fence_type, "props": props}))
                 except (json.JSONDecodeError, TypeError):
                     pass
                 self.fence_type = ""
             else:
                 m = _FENCE_OPEN.search(self.buf)
-                if m and m.start() is not None:
+                if m:
                     before = self.buf[:m.start()]
                     if before:
-                        self.output.append(_sse_event("text", {"content": before}))
+                        self._pending.append(_sse_event("text", {"content": before}))
                     self.fence_type = m.group(1)
                     self.buf = self.buf[m.end():]
                     self.in_fence = True
@@ -139,28 +118,23 @@ class _FenceBuffer:
                     partial = _FENCE_PARTIAL.search(self.buf)
                     safe = len(self.buf) - len(partial.group(0)) if partial else len(self.buf)
                     if safe > 0:
-                        self.output.append(_sse_event("text", {"content": self.buf[:safe]}))
+                        self._pending.append(_sse_event("text", {"content": self.buf[:safe]}))
                         self.buf = self.buf[safe:]
                     break
 
     def flush(self) -> None:
         if self.in_fence:
-            self.output.append(_sse_event("text", {"content": "```ui:" + self.fence_type + "\n" + self.buf}))
+            self._pending.append(_sse_event("text", {"content": "```ui:" + self.fence_type + "\n" + self.buf}))
         elif self.buf:
-            self.output.append(_sse_event("text", {"content": self.buf}))
+            self._pending.append(_sse_event("text", {"content": self.buf}))
         self.buf = ""
         self.in_fence = False
         self.fence_type = ""
 
     def drain(self) -> list[str]:
-        events = self.output
-        self.output = []
+        events = self._pending
+        self._pending = []
         return events
-
-
-# ---------------------------------------------------------------------------
-# Chat system prompt builder — maps to chat.ts buildChatSystemPrompt
-# ---------------------------------------------------------------------------
 
 
 def _build_chat_system_prompt(ctx: dict[str, Any]) -> str:
@@ -210,11 +184,6 @@ def _build_chat_prompt(message: str, history: list[_ConversationEntry]) -> str:
     return "\n".join(parts)
 
 
-# ---------------------------------------------------------------------------
-# Route registration
-# ---------------------------------------------------------------------------
-
-
 def register_chat_routes(
     router: APIRouter,
     *,
@@ -235,6 +204,9 @@ def register_chat_routes(
             user_prompt = _build_chat_prompt(req.message, conversation.messages)
 
             conversation.messages.append(_ConversationEntry(role="user", content=req.message))
+            # Cap stored messages to prevent unbounded growth
+            if len(conversation.messages) > _MAX_HISTORY_MESSAGES * 2:
+                conversation.messages = conversation.messages[-_MAX_HISTORY_MESSAGES * 2:]
 
             yield _sse_event("status", {"status": "thinking"})
 
@@ -249,7 +221,7 @@ def register_chat_routes(
                     model=model,
                     max_turns=max_turns,
                     max_budget_usd=max_budget_usd,
-                    allowed_tools=["Bash", "Read", "Glob", "Grep", "Skill"],
+                    allowed_tools=DEFAULT_ALLOWED_TOOLS,
                     cwd=skills_dir,
                     stream=True,
                 ))
@@ -263,24 +235,29 @@ def register_chat_routes(
                             case "text_delta":
                                 fence.add(event.text)
                             case "thinking_delta":
-                                fence.output.append(_sse_event("thinking", {"content": event.thinking}))
+                                fence.emit(_sse_event("thinking", {"content": event.thinking}))
                             case "content_block_stop":
                                 fence.flush()
                             case "tool_call":
-                                fence.output.append(_sse_event("tool_call", {"name": event.name, "input": event.input}))
+                                fence.emit(_sse_event("tool_call", {"name": event.name, "input": event.input}))
                             case "tool_result":
-                                fence.output.append(_sse_event("tool_result", {"output": event.output}))
+                                fence.emit(_sse_event("tool_result", {"output": event.output}))
                             case "result":
                                 total_cost = event.cost_usd
                                 agent_text = event.text
 
-                await asyncio.wait_for(run(), timeout=timeout_ms / 1000)
+                        # Yield accumulated events incrementally
+                        for chunk in fence.drain():
+                            yield chunk
+
+                async for chunk in run():
+                    yield chunk
 
             except asyncio.TimeoutError:
-                fence.output.append(_sse_event("error", {"message": f"Chat timed out after {timeout_ms}ms"}))
+                yield _sse_event("error", {"message": f"Chat timed out after {timeout_ms}ms"})
             except Exception as e:
                 logger.exception("[agent] Chat error")
-                fence.output.append(_sse_event("error", {"message": str(e)}))
+                yield _sse_event("error", {"message": str(e)})
 
             fence.flush()
             for chunk in fence.drain():
