@@ -1,21 +1,17 @@
 """OpenAI provider — wraps openai-agents SDK.
 
-Maps to lightspeed-agent/src/providers/openai.ts.
+Uses SandboxAgent with native Shell, Filesystem, and Skills capabilities.
+The SDK handles tool registration, skill discovery, and command execution.
 """
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 from collections.abc import AsyncIterator
 from typing import Any
 
-from lightspeed_agentic.tools import (
-    discover_openai_skills,
-    parse_bash_restrictions,
-    validate_bash_command,
-)
+from lightspeed_agentic.tools import resolve_skills_dir
 from lightspeed_agentic.types import (
     TOOL_INPUT_MAX_CHARS,
     TOOL_OUTPUT_MAX_CHARS,
@@ -31,201 +27,139 @@ from lightspeed_agentic.types import (
 )
 
 
-def _extract_tokens(usage: Any) -> tuple[int, int]:
-    if hasattr(usage, "input_tokens"):
-        return getattr(usage, "input_tokens", 0), getattr(usage, "output_tokens", 0)
-    if isinstance(usage, dict):
-        return usage.get("input_tokens", 0), usage.get("output_tokens", 0)
-    return 0, 0
+from agents.agent_output import AgentOutputSchemaBase
 
 
-def _build_result(result: Any) -> ResultEvent:
-    usage = getattr(result, "usage", None) or {}
-    input_tokens, output_tokens = _extract_tokens(usage)
-    return ResultEvent(
-        text=stringify(result.final_output),
-        cost_usd=0,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-    )
+class _RawJsonSchema(AgentOutputSchemaBase):
+    """Wraps an operator-provided JSON schema dict for the openai-agents SDK.
+
+    Strict mode is disabled because vLLM does not support constrained decoding.
+    """
+
+    def __init__(self, schema: dict[str, Any]) -> None:
+        self._schema = schema
+
+    def is_plain_text(self) -> bool:
+        return False
+
+    def name(self) -> str:
+        return "raw_json_schema"
+
+    def json_schema(self) -> dict[str, Any]:
+        return self._schema
+
+    def is_strict_json_schema(self) -> bool:
+        return False
+
+    def validate_json(self, json_str: str) -> Any:
+        return json.loads(json_str)
 
 
-def _build_shell_executor(cwd: str, patterns: list[str] | None) -> Any:
-    from agents import ShellCallOutcome, ShellCommandOutput, ShellCommandRequest, ShellResult
-
-    async def executor(request: ShellCommandRequest) -> ShellResult:
-        action = request.data.action
-        outputs: list[ShellCommandOutput] = []
-
-        for command in action.commands:
-            if not validate_bash_command(command, patterns):
-                outputs.append(ShellCommandOutput(
-                    command=command,
-                    stdout="",
-                    stderr=f"Command not allowed. Permitted prefixes: {', '.join(patterns or [])}",
-                    outcome=ShellCallOutcome(type="exit", exit_code=1),
-                ))
-                continue
-
-            proc = await asyncio.create_subprocess_shell(
-                command,
-                cwd=cwd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-
-            timed_out = False
-            try:
-                timeout = (action.timeout_ms or 0) / 1000 or None
-                stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                    proc.communicate(), timeout=timeout
-                )
-            except asyncio.TimeoutError:
-                proc.kill()
-                stdout_bytes, stderr_bytes = await proc.communicate()
-                timed_out = True
-
-            outputs.append(ShellCommandOutput(
-                command=command,
-                stdout=stdout_bytes.decode("utf-8", errors="ignore"),
-                stderr=stderr_bytes.decode("utf-8", errors="ignore"),
-                outcome=ShellCallOutcome(
-                    type="timeout" if timed_out else "exit",
-                    exit_code=getattr(proc, "returncode", None),
-                ),
-            ))
-
-            if timed_out:
-                break
-
-        return ShellResult(
-            output=outputs,
-            provider_data={"working_directory": cwd},
-        )
-
-    return executor
+_openai_initialized = False
 
 
-def _ensure_strict_schema(schema: dict[str, Any]) -> dict[str, Any]:
-    """OpenAI strict mode requires additionalProperties:false on every object."""
-    schema = dict(schema)
-    if schema.get("type") == "object":
-        schema.setdefault("additionalProperties", False)
-        if "properties" in schema:
-            schema["properties"] = {
-                k: _ensure_strict_schema(v) for k, v in schema["properties"].items()
-            }
-    if schema.get("type") == "array" and "items" in schema:
-        schema["items"] = _ensure_strict_schema(schema["items"])
-    return schema
+def _ensure_openai_init() -> None:
+    global _openai_initialized
+    if _openai_initialized:
+        return
+    from agents import enable_verbose_stdout_logging
+    from agents.tracing import set_tracing_disabled
 
-
-def _build_output_schema(schema: dict[str, Any]) -> Any:
-    """Wrap raw JSON Schema for the OpenAI SDK's AgentOutputSchemaBase."""
-    from agents.agent_output import AgentOutputSchemaBase
-    from agents.exceptions import ModelBehaviorError
-
-    strict_schema = _ensure_strict_schema(schema)
-
-    class RawJsonSchemaOutput(AgentOutputSchemaBase):
-        def __init__(self, json_schema: dict[str, Any]) -> None:
-            self._schema = json_schema
-
-        def is_plain_text(self) -> bool:
-            return False
-
-        def name(self) -> str:
-            return "agent_output"
-
-        def json_schema(self) -> dict[str, Any]:
-            return self._schema
-
-        def is_strict_json_schema(self) -> bool:
-            return True
-
-        def validate_json(self, json_str: str) -> Any:
-            try:
-                return json.loads(json_str)
-            except json.JSONDecodeError as e:
-                raise ModelBehaviorError(f"Invalid JSON output: {e}") from e
-
-    return RawJsonSchemaOutput(strict_schema)
+    set_tracing_disabled(True)
+    enable_verbose_stdout_logging()
+    _openai_initialized = True
 
 
 class OpenAIProvider(AgentProvider):
+    _client: Any = None
+
     @property
     def name(self) -> str:
         return "openai"
 
     async def query(self, options: ProviderQueryOptions) -> AsyncIterator[ProviderEvent]:
-        from agents import Agent, Runner, ShellTool
+        from agents import (
+            RawResponsesStreamEvent,
+            RunItemStreamEvent,
+            Runner,
+        )
+        from agents.items import ToolCallItem, ToolCallOutputItem
+        from agents.models.openai_responses import OpenAIResponsesModel
+        from agents.run_config import RunConfig, SandboxRunConfig
+        from agents.sandbox import SandboxAgent
+        from agents.sandbox.capabilities import Filesystem, Shell, Skills
+        from agents.sandbox.capabilities.skills import LocalDirLazySkillSource
+        from agents.sandbox.entries import LocalDir
+        from agents.sandbox.manifest import Manifest
+        from agents.sandbox.sandboxes.unix_local import (
+            UnixLocalSandboxClient,
+        )
+        from openai.types.responses import ResponseTextDeltaEvent
 
-        bash_allowed, patterns = parse_bash_restrictions(options.allowed_tools)
+        _ensure_openai_init()
 
-        tools: list[Any] = []
-        if bash_allowed or "Skill" in options.allowed_tools:
-            executor = _build_shell_executor(options.cwd, patterns)
-            skills = (
-                discover_openai_skills(options.cwd)
-                if "Skill" in options.allowed_tools
-                else []
-            )
-            environment: dict[str, Any] = {"type": "local"}
-            if skills:
-                environment["skills"] = skills
+        if self._client is None:
+            from openai import AsyncOpenAI
+            self._client = AsyncOpenAI(base_url=os.environ.get("OPENAI_BASE_URL"))
+        model = OpenAIResponsesModel(model=options.model, openai_client=self._client)
 
-            tools.append(ShellTool(
-                executor=executor,
-                environment=environment,
-                needs_approval=False,
-            ))
+        skills_dir = resolve_skills_dir(options.cwd)
+        capabilities = [
+            Shell(),
+            Filesystem(),
+            Skills(lazy_from=LocalDirLazySkillSource(source=LocalDir(src=skills_dir))),
+        ]
 
-        output_schema = _build_output_schema(options.output_schema) if options.output_schema else None
+        manifest = Manifest(root="/tmp/agent-workspace")
 
-        agent = Agent(
-            name="lightspeed",
-            instructions=options.system_prompt,
-            model=options.model,
-            tools=tools,
-            **({"output_type": output_schema} if output_schema else {}),
+        agent_kwargs: dict[str, Any] = {
+            "name": "lightspeed",
+            "instructions": options.system_prompt,
+            "model": model,
+            "capabilities": capabilities,
+            "default_manifest": manifest,
+        }
+
+        if options.output_schema:
+            agent_kwargs["output_type"] = _RawJsonSchema(options.output_schema)
+
+        agent = SandboxAgent(**agent_kwargs)
+
+        run_config = RunConfig(
+            sandbox=SandboxRunConfig(
+                client=UnixLocalSandboxClient(),
+            ),
         )
 
-        if options.stream:
-            result = Runner.run_streamed(
-                agent, options.prompt, max_turns=options.max_turns
-            )
+        result = Runner.run_streamed(
+            agent,
+            options.prompt,
+            max_turns=options.max_turns,
+            run_config=run_config,
+        )
 
-            async for event in result.stream_events():
-                if event.type == "raw_response_event":
-                    data = event.data
-                    if (
-                        hasattr(data, "type")
-                        and data.type == "response.output_text.delta"
-                        and hasattr(data, "delta")
-                    ):
-                        yield TextDeltaEvent(text=data.delta)
+        async for event in result.stream_events():
+            if isinstance(event, RawResponsesStreamEvent):
+                if isinstance(event.data, ResponseTextDeltaEvent) and event.data.delta:
+                    yield TextDeltaEvent(text=event.data.delta)
+            elif isinstance(event, RunItemStreamEvent):
+                if isinstance(event.item, ToolCallItem):
+                    raw = event.item.raw_item
+                    name = getattr(raw, "name", None) or (raw.get("name") if isinstance(raw, dict) else "") or ""
+                    args = getattr(raw, "arguments", None) or ""
+                    yield ToolCallEvent(name=name, input=args[:TOOL_INPUT_MAX_CHARS])
+                elif isinstance(event.item, ToolCallOutputItem):
+                    yield ToolResultEvent(output=stringify(event.item.output)[:TOOL_OUTPUT_MAX_CHARS])
 
-                elif event.type == "run_item_stream_event":
-                    item = event.item
-                    item_type = getattr(item, "type", "")
+        yield ContentBlockStopEvent()
 
-                    if item_type == "tool_call_item":
-                        yield ToolCallEvent(
-                            name=getattr(item, "name", "unknown"),
-                            input=json.dumps(
-                                getattr(item, "arguments", {}) or {}
-                            )[:TOOL_INPUT_MAX_CHARS],
-                        )
-                    elif item_type == "tool_call_output_item":
-                        yield ToolResultEvent(
-                            output=(getattr(item, "output", "") or "")[:TOOL_OUTPUT_MAX_CHARS]
-                        )
+        usage = getattr(result, "usage", None) or {}
+        input_tokens = getattr(usage, "input_tokens", 0)
+        output_tokens = getattr(usage, "output_tokens", 0)
 
-            yield ContentBlockStopEvent()
-            yield _build_result(result)
-
-        else:
-            result = await Runner.run(
-                agent, options.prompt, max_turns=options.max_turns
-            )
-            yield _build_result(result)
+        yield ResultEvent(
+            text=stringify(result.final_output),
+            cost_usd=0,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
