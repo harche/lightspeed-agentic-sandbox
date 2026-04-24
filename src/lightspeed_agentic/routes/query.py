@@ -121,6 +121,9 @@ async def _handle_query(
         return QueryResponse(success=True, summary=text)
 
 
+# TODO: collapse into a single POST /query with a phase field in the request body.
+# All three endpoints use the same handler — differentiation is entirely in the
+# operator's request (systemPrompt, outputSchema), not here.
 _PHASE_ENDPOINTS = [
     ("/analyze", "analysis"),
     ("/execute", "execution"),

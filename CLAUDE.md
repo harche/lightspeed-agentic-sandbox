@@ -10,30 +10,31 @@ same event types, same tool/skill behavior — different language.
 ```
 src/lightspeed_agentic/
 ├── types.py              # ProviderEvent (6 types), ProviderQueryOptions, AgentProvider ABC
-├── factory.py            # create_provider("claude"|"gemini"|"openai")
-├── tools.py              # Shared executors (bash/read/write/glob/grep) for non-Claude providers
+├── factory.py            # create_provider("claude"|"gemini"|"openai"|"deepagents")
+├── tools.py              # Shared utilities (resolve_skills_dir)
 ├── logging.py            # Normalized event logging
 └── providers/
     ├── claude.py          # claude-agent-sdk — SDK handles tools+skills natively
-    ├── gemini.py          # google-adk — SkillToolset + plain function tools
-    └── openai.py          # openai-agents — ShellTool + ShellToolLocalSkill
+    ├── gemini.py          # google-adk — ExecuteBashTool + SkillToolset (native)
+    ├── openai.py          # openai-agents — SandboxAgent with Shell+Skills capabilities (native)
+    └── deepagents.py      # langchain deepagents — LocalShellBackend + native skills
 ```
 
 ## Provider SDK Mapping
 
-| Feature | Claude (`claude-agent-sdk`) | Gemini (`google-adk`) | OpenAI (`openai-agents`) |
-|---------|---------------------------|----------------------|------------------------|
-| Tools | Built-in (Bash, Read, etc.) | Plain callables (auto-wrapped) | ShellTool + ShellExecutor |
-| Skills | Native `skills=` param | Native `SkillToolset` | Native `ShellToolLocalSkill` |
-| Structured output | `output_format` | Schema in prompt (output_schema disables tools) | `output_type` Pydantic model |
-| Streaming | `include_partial_messages` | `StreamingMode.SSE` | `Runner.run_streamed()` |
+| Feature | Claude (`claude-agent-sdk`) | Gemini (`google-adk`) | OpenAI (`openai-agents`) | Deep Agents (`deepagents`) |
+|---------|---------------------------|----------------------|------------------------|--------------------------|
+| Tools | Built-in (Bash, Read, etc.) | Native `ExecuteBashTool` | Native `SandboxAgent` (Shell, Filesystem) | Built-in (execute, read_file, edit_file, etc.) |
+| Skills | Native `skills=` param | Native `SkillToolset` | Native `Skills` capability | Native `skills=` + `SkillsMiddleware` |
+| Structured output | `output_format` | Schema in prompt (output_schema disables tools) | `output_type` Pydantic model | `response_format` param |
+| Streaming | `include_partial_messages` | `StreamingMode.SSE` | `Runner.run_streamed()` | LangGraph `astream(stream_mode="values")` |
 
 ## Key Design Decisions
 
 - **No manual SKILL.md parsing** — each SDK handles skill discovery natively
-- **No ToolDescriptor abstraction** — each provider uses its SDK's native tool format
-- **tools.py only has raw executors** — Gemini wraps them as callables, OpenAI wraps via ShellExecutor
-- **Claude provider is the thinnest** — SDK does everything
+- **No hand-rolled tool executors** — each provider uses its SDK's native tools
+- **tools.py only has shared utilities** — `resolve_skills_dir`, `discover_openai_skills`, raw executors for tests
+- **All providers are thin** — pass prompt, skills dir, and output schema to the SDK
 
 ## Environment Variables
 
