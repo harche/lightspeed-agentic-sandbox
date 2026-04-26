@@ -1,6 +1,6 @@
 # Evals
 
-End-to-end evaluations that run real API calls against all providers. Each test is independent and runs in parallel.
+End-to-end evaluations that run against the production container image. Each test is independent and runs in parallel.
 
 ## Contents
 
@@ -10,15 +10,15 @@ End-to-end evaluations that run real API calls against all providers. Each test 
 - [Credentials](#credentials)
 - [Running Evals](#running-evals)
 - [Reports](#reports)
-- [Container Evals](#container-evals)
 - [Adding Tests](#adding-tests)
 
 ## Quick Start
 
 ```bash
-make install-all    # install all provider SDKs + eval deps
-make eval           # run all evals (skips providers without credentials)
+make eval
 ```
+
+This builds the production container image, mounts `evals/`, forwards credentials, and runs all 60 tests in parallel.
 
 ## Providers & Models
 
@@ -59,29 +59,26 @@ Providers without valid credentials are automatically skipped. Credential detect
 
 ## Running Evals
 
-All evals run in parallel by default (`pytest-xdist -n auto`). Each test gets an isolated workspace copy.
+Evals always run inside the production container image. Use `EVAL_ARGS` to pass pytest flags.
 
 ```bash
 # All providers
 make eval
 
 # Single provider
-pytest evals/ -k claude
+make eval EVAL_ARGS="-k claude"
 
 # Single test category
-pytest evals/ -k structured_output
+make eval EVAL_ARGS="-k structured_output"
 
 # Single test + single provider
-pytest evals/test_tool_usage.py::test_greet_tool -k gemini
+make eval EVAL_ARGS="-k 'test_greet_tool and gemini'"
 
 # Override model for a run
-ANTHROPIC_MODEL=claude-opus-4-6 pytest evals/ -k claude
+ANTHROPIC_MODEL=claude-opus-4-6 make eval EVAL_ARGS="-k claude"
 
 # Sequential with stdout (debugging)
-pytest evals/ -n0 -s
-
-# Verbose with per-test timing
-pytest evals/ -v --durations=0
+make eval EVAL_ARGS="-n0 -s"
 ```
 
 ## Reports
@@ -90,19 +87,7 @@ Generate a JSON report at `evals/report.json`:
 
 ```bash
 make eval-report
-# or
-pytest evals/ --eval-report=evals/report.json
 ```
-
-## Container Evals
-
-Run evals against the production container image:
-
-```bash
-make eval-container
-```
-
-This builds the image, mounts `evals/`, and runs `pytest` inside the container. Credentials are forwarded via environment variables.
 
 ## Adding Tests
 

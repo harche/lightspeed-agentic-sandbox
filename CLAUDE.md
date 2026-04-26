@@ -80,7 +80,7 @@ make eval-report    # evals + JSON report at evals/report.json
 `evals/` runs 60 tests across 6 providers in parallel. See [`evals/README.md`](evals/README.md) for full documentation.
 
 ```bash
-make eval                              # all providers (parallel)
-pytest evals/ -k claude                # single provider
+make eval                              # all providers in container (parallel)
+make eval EVAL_ARGS="-k claude"        # single provider
 make eval-report                       # JSON report at evals/report.json
 ```
