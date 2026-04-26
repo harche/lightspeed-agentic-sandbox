@@ -110,7 +110,7 @@ class OpenAIProvider(AgentProvider):
             Skills(lazy_from=LocalDirLazySkillSource(source=LocalDir(src=skills_dir))),
         ]
 
-        manifest = Manifest(root="/tmp/agent-workspace")
+        manifest = Manifest(root=options.cwd)
 
         agent_kwargs: dict[str, Any] = {
             "name": "lightspeed",

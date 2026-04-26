@@ -79,18 +79,29 @@ def _resolve_field_type(schema: dict[str, Any], name: str) -> type:
     return _JSON_SCHEMA_TYPE_MAP.get(json_type, str)
 
 
+_model_cache: dict[str, Any] = {}
+
+
 def _resolve_model(model: str) -> Any:
-    """Map a bare model name to a provider:model string for init_chat_model.
+    """Map a bare model name to a chat model instance or provider:model string.
 
     Deepagents uses langchain's init_chat_model which needs a provider prefix
     for non-obvious model names (e.g. 'google_genai:gemini-2.5-flash').
     Bare 'claude-*' and 'gpt-*'/'o1*'/'o3*' are auto-detected by langchain.
+    Vertex AI Claude requires a pre-built instance for project/location config.
     """
     if ":" in model:
         return model
 
     if os.environ.get("CLAUDE_CODE_USE_VERTEX") == "1" and model.startswith("claude"):
-        return f"google_anthropic_vertex:{model}"
+        if model not in _model_cache:
+            from langchain_google_vertexai.model_garden import ChatAnthropicVertex
+            _model_cache[model] = ChatAnthropicVertex(
+                model_name=model,
+                project=os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID", ""),
+                location=os.environ.get("CLOUD_ML_REGION", "us-east5"),
+            )
+        return _model_cache[model]
 
     if model.startswith("gemini"):
         if os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY"):
