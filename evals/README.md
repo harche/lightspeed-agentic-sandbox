@@ -2,6 +2,8 @@
 
 End-to-end evaluations that run against the production container image. Each test is independent and runs in parallel.
 
+> **Note:** On macOS, the eval suite runs all 60 tests in parallel to save time, which spikes memory usage. Ensure the podman machine has at least 8GB: check with `podman info | grep memTotal`, resize with `podman machine set --memory 8192`.
+
 ## Contents
 
 - [Quick Start](#quick-start)
