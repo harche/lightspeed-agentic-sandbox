@@ -2,4 +2,4 @@
 
 Multi-provider agentic sandbox library for OpenShift Lightspeed.
 
-See [CLAUDE.md](CLAUDE.md) for architecture and usage.
+See [CLAUDE.md](CLAUDE.md) for architecture and usage, and [evals/](evals/README.md) for the evaluation framework.
