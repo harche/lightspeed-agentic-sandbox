@@ -66,8 +66,12 @@ def provider(provider_name: str) -> AgentProvider:
 
 
 @pytest.fixture
-def eval_workspace() -> Path:
-    return Path(__file__).parent / "workspace"
+def eval_workspace(tmp_path: Path) -> Path:
+    import shutil
+    src = Path(__file__).parent / "workspace"
+    dst = tmp_path / "workspace"
+    shutil.copytree(src, dst)
+    return dst
 
 
 @pytest.fixture
