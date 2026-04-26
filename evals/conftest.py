@@ -1,4 +1,4 @@
-"""Eval fixtures — provider parametrize, workspace, model defaults."""
+"""Eval fixtures — provider parametrize, server URLs, workspace."""
 
 from __future__ import annotations
 
@@ -7,85 +7,70 @@ from pathlib import Path
 
 import pytest
 
-from lightspeed_agentic.types import AgentProvider, ProviderQueryOptions
-
-from .credentials import PROVIDER_NAMES, detect_all, detect_credentials
+from .credentials import PROVIDER_NAMES, detect_all
 from .report import pytest_addoption, pytest_configure, store_eval_result  # noqa: F401
-from .runner import EvalResult, run_eval as _run_eval
+from .runner import AnalyzeResult, run_analyze as _run_analyze
 
-_DEFAULT_MODELS: dict[str, str] = {
-    "claude": "claude-sonnet-4-6",
-    "gemini": "gemini-3.1-pro-preview",
-    "openai": "gpt-5.4",
-    "deepagents": "claude-opus-4-6",
-    "deepagents-gemini": "gemini-3.1-pro-preview",
-    "deepagents-openai": "gpt-5.4",
-}
 
-_MODEL_ENV_VARS: dict[str, str] = {
-    "claude": "ANTHROPIC_MODEL",
-    "gemini": "GEMINI_MODEL",
-    "openai": "OPENAI_MODEL",
-    "deepagents": "DEEPAGENTS_MODEL",
-    "deepagents-gemini": "DEEPAGENTS_GEMINI_MODEL",
-    "deepagents-openai": "DEEPAGENTS_OPENAI_MODEL",
-}
+def _parse_env_map(var: str, _cache: dict[str, dict[str, str]] = {}) -> dict[str, str]:
+    if var not in _cache:
+        raw = os.environ.get(var, "")
+        result = {}
+        for entry in raw.split(","):
+            entry = entry.strip()
+            if "=" in entry:
+                name, value = entry.split("=", 1)
+                result[name.strip()] = value.strip()
+        _cache[var] = result
+    return _cache[var]
 
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     if "provider_name" not in metafunc.fixturenames:
         return
 
+    server_urls = _parse_env_map("EVAL_SERVER_URLS")
     creds = detect_all()
     params = []
     for name in PROVIDER_NAMES:
+        if name not in server_urls:
+            params.append(pytest.param(
+                name, id=name,
+                marks=pytest.mark.skip(reason=f"No server for {name}"),
+            ))
+            continue
         status = creds[name]
-        if status.available:
-            params.append(pytest.param(name, id=name))
-        else:
+        if not status.available:
             params.append(pytest.param(
                 name, id=name,
                 marks=pytest.mark.skip(reason=status.reason),
             ))
+            continue
+        params.append(pytest.param(name, id=name))
     metafunc.parametrize("provider_name", params)
 
 
 @pytest.fixture
-def provider(provider_name: str) -> AgentProvider:
-    from lightspeed_agentic.factory import create_provider
-
-    # Inject provider-specific env vars (e.g., GEMINI_API_KEY → GOOGLE_API_KEY)
-    status = detect_credentials(provider_name)
-    for key, value in status.env_vars.items():
-        os.environ.setdefault(key, value)
-
-    try:
-        return create_provider(provider_name)
-    except ImportError as e:
-        pytest.skip(f"{provider_name} SDK not installed: {e}")
+def server_url(provider_name: str) -> str:
+    return _parse_env_map("EVAL_SERVER_URLS")[provider_name]
 
 
 @pytest.fixture
-def eval_workspace(tmp_path: Path) -> Path:
-    import shutil
-    src = Path(__file__).parent / "workspace"
-    dst = tmp_path / "workspace"
-    shutil.copytree(src, dst)
-    return dst
+def eval_workspace(provider_name: str) -> Path:
+    return Path(_parse_env_map("EVAL_WORKSPACES")[provider_name])
 
 
 @pytest.fixture
-def default_model(provider_name: str) -> str:
-    env_var = _MODEL_ENV_VARS.get(provider_name, "")
-    return os.environ.get(env_var, _DEFAULT_MODELS.get(provider_name, ""))
+def eval_runner(server_url: str, provider_name: str, request: pytest.FixtureRequest):
+    """Returns an async callable that POSTs to /v1/agent/analyze."""
 
-
-@pytest.fixture
-def eval_runner(provider: AgentProvider, request: pytest.FixtureRequest):
-    """Returns an async callable that runs an eval and stores the result for reporting."""
-
-    async def _run(options: ProviderQueryOptions) -> EvalResult:
-        result = await _run_eval(provider, options)
+    async def _run(
+        query: str,
+        system_prompt: str = "You are a helpful assistant.",
+        output_schema: dict | None = None,
+    ) -> AnalyzeResult:
+        result = await _run_analyze(server_url, query, system_prompt, output_schema)
+        result.provider = provider_name
         store_eval_result(request.node, result)
         return result
 

@@ -14,12 +14,12 @@ from typing import Any
 import pytest
 
 from .credentials import detect_all
-from .runner import EvalResult
+from .runner import AnalyzeResult
 
-_STASH_KEY = pytest.StashKey[EvalResult]()
+_STASH_KEY = pytest.StashKey[AnalyzeResult]()
 
 
-def store_eval_result(item: pytest.Item, result: EvalResult) -> None:
+def store_eval_result(item: pytest.Item, result: AnalyzeResult) -> None:
     item.stash[_STASH_KEY] = result
 
 
@@ -102,10 +102,6 @@ class EvalReportPlugin:
 
         if eval_result:
             tr.latency_seconds = round(eval_result.latency_seconds, 3)
-            tr.cost_usd = round(eval_result.cost_usd, 6)
-            tr.input_tokens = eval_result.input_tokens
-            tr.output_tokens = eval_result.output_tokens
-            tr.tool_calls_count = len(eval_result.tool_calls)
             tr.error = eval_result.error
 
         self.report.results.append(asdict(tr))

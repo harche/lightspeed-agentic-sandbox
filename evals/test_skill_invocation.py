@@ -1,68 +1,47 @@
-"""Skill invocation tests — model discovers and uses dummy skills."""
+"""Skill invocation test — model discovers skill, executes tool, returns complex structured output."""
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from pathlib import Path
 
+import jsonschema
 import pytest
 
-from lightspeed_agentic.types import ProviderQueryOptions
-
-from .runner import EvalResult, assert_tool_token
-
-
-@pytest.mark.eval
-@pytest.mark.asyncio
-async def test_calculator_skill(
-    provider_name: str, default_model: str, eval_workspace: Path,
-    eval_runner: Callable[..., EvalResult],
-) -> None:
-    """Provider discovers and uses the calculator skill."""
-    result = await eval_runner(ProviderQueryOptions(
-        prompt=(
-            "Run: bash tools/calc.sh '(15 * 7) + 23'\n"
-            "What is the result and verification token?"
-        ),
-        system_prompt="You are an assistant. Execute commands to get results.",
-        model=default_model,
-        max_turns=15,
-        max_budget_usd=1.0,
-        allowed_tools=["Bash", "Skill"],
-        cwd=str(eval_workspace),
-    ))
-
-    assert result.error is None, f"{provider_name} errored: {result.error}"
-    assert_tool_token(eval_workspace, ".calc_token", result, provider_name, "calc.sh")
-    assert "128" in result.result_text, (
-        f"{provider_name} did not report 128. result={result.result_text[:200]}"
-    )
+from .runner import AnalyzeResult, assert_tool_token
+from .schemas import ANALYSIS_WITH_COMPONENTS_SCHEMA
 
 
 @pytest.mark.eval
 @pytest.mark.asyncio
-async def test_lookup_skill(
-    provider_name: str, default_model: str, eval_workspace: Path,
-    eval_runner: Callable[..., EvalResult],
+async def test_find_token_skill(
+    provider_name: str, eval_workspace: Path,
+    eval_runner: Callable[..., AnalyzeResult],
 ) -> None:
-    """Provider discovers and uses the lookup skill to query data."""
-    result = await eval_runner(ProviderQueryOptions(
-        prompt=(
-            "Run: bash tools/lookup-data.sh version\n"
-            "What is the version number and verification token?"
-        ),
-        system_prompt="You are an assistant. Execute commands to get results.",
-        model=default_model,
-        max_turns=15,
-        max_budget_usd=1.0,
-        allowed_tools=["Bash", "Skill"],
-        cwd=str(eval_workspace),
-    ))
+    """Provider discovers find-token skill, executes it, returns analysis with components."""
+    result = await eval_runner(
+        query="Find the hidden token using the 'find-token' skill.",
+        system_prompt="You are an assistant. Use your available skills to accomplish tasks.",
+        output_schema=ANALYSIS_WITH_COMPONENTS_SCHEMA,
+    )
 
     assert result.error is None, f"{provider_name} errored: {result.error}"
-    assert_tool_token(eval_workspace, ".lookup_token", result, provider_name, "lookup-data.sh")
-    assert "2.1.0" in result.result_text, (
-        f"{provider_name} did not report version 2.1.0. "
-        f"result={result.result_text[:200]}"
-    )
+
+    jsonschema.validate(result.raw, ANALYSIS_WITH_COMPONENTS_SCHEMA)
+
+    assert_tool_token(eval_workspace, ".hidden_token", result, provider_name, "find-token.sh")
+
+    option = result.raw["options"][0]
+    assert option["diagnosis"]["confidence"] in ("low", "medium", "high")
+    assert option["proposal"]["risk"] in ("low", "medium", "high", "critical")
+    assert isinstance(option["proposal"]["reversible"], bool)
+    assert len(option["proposal"]["actions"]) > 0
+    assert len(option["components"]) > 0
+
+    comp = option["components"][0]
+    assert comp["tokens"]["primary"]["valid"] is True
+    assert comp["tokens"]["secondary"]["valid"] is True
+    assert comp["audit"]["outcome"] in ("pass", "fail", "partial")
+    assert len(comp["audit"]["findings"]) > 0
+    for finding in comp["audit"]["findings"]:
+        assert finding["severity"] in ("info", "warning", "critical")
