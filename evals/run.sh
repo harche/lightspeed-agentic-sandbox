@@ -24,11 +24,14 @@ WORKDIRS=()
 OUTDIRS=()
 
 cleanup() {
-    for cid in "${CONTAINERS[@]}"; do
-        $RUNTIME stop "$cid" 2>/dev/null || true
-        $RUNTIME rm -f "$cid" 2>/dev/null || true
+    for i in "${!PROVIDERS[@]}"; do
+        name="${PROVIDERS[$i]}"
+        outdir="$(pwd)/.eval-workspaces/output-${name}"
+        $RUNTIME logs "eval-${name}" > "${outdir}/container.log" 2>&1 || true
+        $RUNTIME stop "eval-${name}" 2>/dev/null || true
+        $RUNTIME rm -f "eval-${name}" 2>/dev/null || true
     done
-    for d in "${WORKDIRS[@]}" "${OUTDIRS[@]}"; do
+    for d in "${WORKDIRS[@]}"; do
         rm -rf "$d" 2>/dev/null || true
     done
 }
