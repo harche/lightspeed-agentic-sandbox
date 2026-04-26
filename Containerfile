@@ -74,7 +74,7 @@ WORKDIR /app
 # Install Python package
 COPY pyproject.toml README.md ./
 COPY src/ src/
-RUN pip install --no-cache-dir ".[all]"
+RUN pip install --no-cache-dir ".[all,eval]"
 
 # dumb-init for proper signal propagation to child processes
 RUN dnf install -y --nodocs dumb-init && dnf clean all
