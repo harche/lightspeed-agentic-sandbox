@@ -165,11 +165,25 @@ def _check_deepagents() -> ProviderCredentialStatus:
     )
 
 
+def _rewrap(status: ProviderCredentialStatus, name: str) -> ProviderCredentialStatus:
+    return ProviderCredentialStatus(name, status.available, status.source, status.reason, status.env_vars)
+
+
+def _check_deepagents_gemini() -> ProviderCredentialStatus:
+    return _rewrap(_check_gemini(), "deepagents-gemini")
+
+
+def _check_deepagents_openai() -> ProviderCredentialStatus:
+    return _rewrap(_check_openai(), "deepagents-openai")
+
+
 _CHECKERS = {
     "claude": _check_claude,
     "gemini": _check_gemini,
     "openai": _check_openai,
     "deepagents": _check_deepagents,
+    "deepagents-gemini": _check_deepagents_gemini,
+    "deepagents-openai": _check_deepagents_openai,
 }
 
 PROVIDER_NAMES = list(_CHECKERS.keys())

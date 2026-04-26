@@ -15,9 +15,11 @@ from .runner import EvalResult, run_eval as _run_eval
 
 _DEFAULT_MODELS: dict[str, str] = {
     "claude": "claude-sonnet-4-6",
-    "gemini": "gemini-3.1-flash-lite-preview",
+    "gemini": "gemini-3.1-pro-preview",
     "openai": "gpt-5.4",
     "deepagents": "claude-opus-4-6",
+    "deepagents-gemini": "gemini-3.1-pro-preview",
+    "deepagents-openai": "gpt-5.4",
 }
 
 _MODEL_ENV_VARS: dict[str, str] = {
@@ -25,6 +27,8 @@ _MODEL_ENV_VARS: dict[str, str] = {
     "gemini": "GEMINI_MODEL",
     "openai": "OPENAI_MODEL",
     "deepagents": "DEEPAGENTS_MODEL",
+    "deepagents-gemini": "DEEPAGENTS_GEMINI_MODEL",
+    "deepagents-openai": "DEEPAGENTS_OPENAI_MODEL",
 }
 
 
