@@ -13,3 +13,4 @@ build/
 htmlcov/
 evals/report.json
 /evals/workspace/.agents/
+/.eval-workspaces/

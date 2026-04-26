@@ -1,58 +1,51 @@
-"""Eval execution wrapper — times queries and captures all events."""
+"""Eval runner — POSTs to /v1/agent/analyze and captures the response."""
 
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
-from lightspeed_agentic.types import (
-    AgentProvider,
-    ProviderEvent,
-    ProviderQueryOptions,
-    ResultEvent,
-    ToolCallEvent,
-    ToolResultEvent,
-)
+import httpx
 
 
 @dataclass
-class EvalResult:
-    provider: str
-    result_text: str = ""
-    cost_usd: float = 0.0
-    input_tokens: int = 0
-    output_tokens: int = 0
+class AnalyzeResult:
+    provider: str = ""
+    success: bool = False
+    summary: str = ""
+    raw: dict[str, Any] = field(default_factory=dict)
     latency_seconds: float = 0.0
-    tool_calls: list[ToolCallEvent] = field(default_factory=list)
-    tool_results: list[ToolResultEvent] = field(default_factory=list)
-    events: list[ProviderEvent] = field(default_factory=list)
     error: str | None = None
 
 
-async def run_eval(
-    provider: AgentProvider,
-    options: ProviderQueryOptions,
-) -> EvalResult:
-    result = EvalResult(provider=provider.name)
+async def run_analyze(
+    server_url: str,
+    query: str,
+    system_prompt: str = "You are a helpful assistant.",
+    output_schema: dict | None = None,
+) -> AnalyzeResult:
+    result = AnalyzeResult()
     start = time.monotonic()
 
-    try:
-        async for event in provider.query(options):
-            result.events.append(event)
+    body: dict[str, Any] = {
+        "query": query,
+        "systemPrompt": system_prompt,
+    }
+    if output_schema:
+        body["outputSchema"] = output_schema
 
-            if isinstance(event, ToolCallEvent):
-                result.tool_calls.append(event)
-            elif isinstance(event, ToolResultEvent):
-                result.tool_results.append(event)
-            elif isinstance(event, ResultEvent):
-                result.result_text = event.text
-                result.cost_usd = event.cost_usd
-                result.input_tokens = event.input_tokens
-                result.output_tokens = event.output_tokens
-    except ImportError as e:
-        import pytest
-        pytest.skip(f"SDK not installed: {e}")
+    try:
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            resp = await client.post(f"{server_url}/v1/agent/analyze", json=body)
+            resp.raise_for_status()
+            data = resp.json()
+
+        result.success = data.get("success", False)
+        result.summary = data.get("summary", "")
+        result.raw = data
     except Exception as e:
         result.error = str(e)
 
@@ -63,21 +56,23 @@ async def run_eval(
 def assert_tool_token(
     eval_workspace: Path,
     token_file_name: str,
-    result: EvalResult,
+    result: AnalyzeResult,
     provider_name: str,
     script_name: str,
 ) -> None:
-    token_file = eval_workspace / token_file_name
-    try:
-        expected_token = token_file.read_text().strip()
-    except FileNotFoundError:
+    matches = list(eval_workspace.rglob(token_file_name))
+    if not matches:
         raise AssertionError(
-            f"{provider_name} did not run {script_name} (no {token_file_name} file)"
+            f"{provider_name} did not run {script_name} (no {token_file_name} found in {eval_workspace})"
         )
 
-    tool_outputs = [e.output for e in result.tool_results]
-    all_text = " ".join(tool_outputs) + " " + result.result_text
-    assert expected_token in all_text, (
-        f"{provider_name} did not report the verification token from {script_name}. "
-        f"expected={expected_token}, result={result.result_text[:200]}"
-    )
+    response_text = json.dumps(result.raw)
+    tokens = matches[0].read_text().strip().splitlines()
+    for token in tokens:
+        token = token.strip()
+        if not token:
+            continue
+        assert token in response_text, (
+            f"{provider_name} did not report verification token {token} from {script_name}. "
+            f"response={result.summary[:200]}"
+        )

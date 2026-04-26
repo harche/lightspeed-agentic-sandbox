@@ -110,6 +110,8 @@ async def _handle_query(
 
     try:
         parsed = json.loads(text)
+        if not isinstance(parsed, dict):
+            raise TypeError("expected dict")
         logger.info("[agent] %s complete: success=%s, cost=$%.4f", phase, parsed.get("success", True), cost)
         return QueryResponse(
             success=parsed.get("success", True),
@@ -147,7 +149,14 @@ def register_query_routes(
     analysis_timeout_ms: int,
     execution_timeout_ms: int,
 ) -> None:
-    resolved_model = model or os.environ.get("ANTHROPIC_MODEL", DEFAULT_MODEL)
+    _MODEL_ENV_VARS = {
+        "claude": "ANTHROPIC_MODEL",
+        "gemini": "GEMINI_MODEL",
+        "openai": "OPENAI_MODEL",
+        "deepagents": "DEEPAGENTS_MODEL",
+    }
+    env_var = _MODEL_ENV_VARS.get(provider.name, "ANTHROPIC_MODEL")
+    resolved_model = model or os.environ.get(env_var, DEFAULT_MODEL)
     timeouts = {"analysis": analysis_timeout_ms, "execution": execution_timeout_ms}
 
     for path, phase in _PHASE_ENDPOINTS:

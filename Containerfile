@@ -71,6 +71,11 @@ RUN curl -sL "https://mirror.openshift.com/pub/openshift-v4/${TARGETARCH}/client
 
 WORKDIR /app
 
+# Claude Code CLI — required by claude-agent-sdk for tool execution
+RUN dnf install -y --nodocs nodejs && dnf clean all && \
+    npm install -g @anthropic-ai/claude-code && \
+    claude --version
+
 # Install Python package
 COPY pyproject.toml README.md ./
 COPY src/ src/
