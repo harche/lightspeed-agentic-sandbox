@@ -21,13 +21,14 @@ fi
 PROVIDERS=("claude" "gemini" "openai" "deepagents" "deepagents-gemini" "deepagents-openai")
 CONTAINERS=()
 WORKDIRS=()
+OUTDIRS=()
 
 cleanup() {
     for cid in "${CONTAINERS[@]}"; do
         $RUNTIME stop "$cid" 2>/dev/null || true
         $RUNTIME rm -f "$cid" 2>/dev/null || true
     done
-    for d in "${WORKDIRS[@]}"; do
+    for d in "${WORKDIRS[@]}" "${OUTDIRS[@]}"; do
         rm -rf "$d" 2>/dev/null || true
     done
 }
@@ -62,17 +63,22 @@ for i in "${!PROVIDERS[@]}"; do
     port=$((BASE_PORT + i))
     agent_provider=$(provider_env "$name")
     workdir=$(mktemp -d "$(pwd)/.eval-workspaces/eval-${name}-XXXXXX")
+    outdir="$(pwd)/.eval-workspaces/output-${name}"
+    mkdir -p "$outdir"
     WORKDIRS+=("$workdir")
+    OUTDIRS+=("$outdir")
     cp -r "$(pwd)/evals/workspace/skills" "$workdir/skills"
     cp -r "$(pwd)/evals/workspace/tools" "$workdir/tools"
     mkdir -p "$workdir/.claude"
     cp -r "$(pwd)/evals/workspace/skills" "$workdir/.claude/skills"
-    chmod -R 777 "$workdir"
+    chmod -R 777 "$workdir" "$outdir"
 
     cid=$($RUNTIME run -d --rm \
         --name "eval-${name}" \
         -p "${port}:8080" \
         -v "${workdir}:/app/workspace:Z" \
+        -v "${outdir}:/app/eval-output:Z" \
+        -e EVAL_OUTPUT_DIR="/app/eval-output" \
         $GCLOUD_MOUNT \
         -e LIGHTSPEED_AGENT_PROVIDER="$agent_provider" \
         -e LIGHTSPEED_SKILLS_DIR="/app/workspace" \
@@ -125,7 +131,7 @@ for i in "${!PROVIDERS[@]}"; do
     name="${PROVIDERS[$i]}"
     port=$((BASE_PORT + i))
     SERVER_URLS="${SERVER_URLS}${name}=http://localhost:${port},"
-    WORKSPACE_MAP="${WORKSPACE_MAP}${name}=${WORKDIRS[$i]},"
+    WORKSPACE_MAP="${WORKSPACE_MAP}${name}=${OUTDIRS[$i]},"
 done
 
 echo ""

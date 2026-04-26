@@ -1,12 +1,12 @@
 #!/bin/bash
 # Generates a complex analysis response with embedded verification tokens.
 # Mirrors the operator's AnalysisOutputSchema + components structure.
-SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+EVAL_OUTPUT="${EVAL_OUTPUT_DIR:-/app/eval-output}"
 DIAG_TOKEN=$(head -c 12 /dev/urandom | base64 | tr -d '=/+')
 VERIFY_TOKEN=$(head -c 12 /dev/urandom | base64 | tr -d '=/+')
 TIMESTAMP=$(date +%s)
 
-cat > "${SCRIPT_DIR}/.hidden_token" <<EOF
+cat > "${EVAL_OUTPUT}/.hidden_token" <<EOF
 DIAG_${DIAG_TOKEN}
 VERIFY_${VERIFY_TOKEN}
 EOF
