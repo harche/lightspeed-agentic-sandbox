@@ -32,6 +32,6 @@ def test_create_provider_explicit_name():
             pass
 
 
-def test_openai_provider_module_imports_without_optional_sdk():
+def test_openai_provider_module_imports_without_eager_optional_sdk_imports():
     module = importlib.import_module("lightspeed_agentic.providers.openai")
     assert module.OpenAIProvider().name == "openai"
