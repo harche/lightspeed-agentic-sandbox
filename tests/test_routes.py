@@ -16,7 +16,7 @@ from .conftest import MockProvider, StreamingMockProvider
 
 def _make_app(provider) -> FastAPI:
     app = FastAPI()
-    router = build_router(provider, skills_dir="/tmp", model="test-model")
+    router = build_router(provider, skills_dir="/workspace", model="test-model")
     app.include_router(router, prefix="/v1/agent")
     return app
 
@@ -25,10 +25,13 @@ def _make_app(provider) -> FastAPI:
 async def test_analyze_endpoint():
     app = _make_app(MockProvider())
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        resp = await client.post("/v1/agent/analyze", json={
-            "query": "Diagnose the issue",
-            "systemPrompt": "You are an SRE agent.",
-        })
+        resp = await client.post(
+            "/v1/agent/analyze",
+            json={
+                "query": "Diagnose the issue",
+                "systemPrompt": "You are an SRE agent.",
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
@@ -39,9 +42,12 @@ async def test_analyze_endpoint():
 async def test_execute_endpoint():
     app = _make_app(MockProvider())
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        resp = await client.post("/v1/agent/execute", json={
-            "query": "Apply the fix",
-        })
+        resp = await client.post(
+            "/v1/agent/execute",
+            json={
+                "query": "Apply the fix",
+            },
+        )
         assert resp.status_code == 200
         assert resp.json()["success"] is True
 
@@ -50,9 +56,12 @@ async def test_execute_endpoint():
 async def test_verify_endpoint():
     app = _make_app(MockProvider())
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        resp = await client.post("/v1/agent/verify", json={
-            "query": "Check the fix worked",
-        })
+        resp = await client.post(
+            "/v1/agent/verify",
+            json={
+                "query": "Check the fix worked",
+            },
+        )
         assert resp.status_code == 200
         assert resp.json()["success"] is True
 
@@ -61,14 +70,17 @@ async def test_verify_endpoint():
 async def test_analyze_with_context():
     app = _make_app(MockProvider())
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        resp = await client.post("/v1/agent/analyze", json={
-            "query": "Diagnose the issue",
-            "context": {
-                "targetNamespaces": ["default", "kube-system"],
-                "attempt": 2,
-                "previousAttempts": [{"attempt": 1, "failureReason": "timeout"}],
+        resp = await client.post(
+            "/v1/agent/analyze",
+            json={
+                "query": "Diagnose the issue",
+                "context": {
+                    "targetNamespaces": ["default", "kube-system"],
+                    "attempt": 2,
+                    "previousAttempts": [{"attempt": 1, "failureReason": "timeout"}],
+                },
             },
-        })
+        )
         assert resp.status_code == 200
         assert resp.json()["success"] is True
 
@@ -77,13 +89,16 @@ async def test_analyze_with_context():
 async def test_analyze_with_output_schema():
     app = _make_app(MockProvider())
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        resp = await client.post("/v1/agent/analyze", json={
-            "query": "Diagnose",
-            "outputSchema": {
-                "type": "object",
-                "properties": {"summary": {"type": "string"}},
+        resp = await client.post(
+            "/v1/agent/analyze",
+            json={
+                "query": "Diagnose",
+                "outputSchema": {
+                    "type": "object",
+                    "properties": {"summary": {"type": "string"}},
+                },
             },
-        })
+        )
         assert resp.status_code == 200
 
 
@@ -114,13 +129,16 @@ async def test_analyze_text_response():
 async def test_chat_endpoint_sse():
     app = _make_app(StreamingMockProvider())
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        resp = await client.post("/v1/agent/chat", json={
-            "message": "What's happening?",
-            "context": {
-                "remediation": {"name": "test-rem", "namespace": "default"},
-                "alert": {"name": "TestAlert", "status": "firing", "severity": "warning"},
+        resp = await client.post(
+            "/v1/agent/chat",
+            json={
+                "message": "What's happening?",
+                "context": {
+                    "remediation": {"name": "test-rem", "namespace": "default"},
+                    "alert": {"name": "TestAlert", "status": "firing", "severity": "warning"},
+                },
             },
-        })
+        )
         assert resp.status_code == 200
         assert resp.headers["content-type"] == "text/event-stream; charset=utf-8"
 
@@ -136,26 +154,32 @@ async def test_chat_endpoint_sse():
 async def test_chat_conversation_continuity():
     app = _make_app(StreamingMockProvider())
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        resp1 = await client.post("/v1/agent/chat", json={
-            "message": "First message",
-            "context": {
-                "remediation": {"name": "r", "namespace": "ns"},
-                "alert": {"name": "a", "status": "firing", "severity": "low"},
+        resp1 = await client.post(
+            "/v1/agent/chat",
+            json={
+                "message": "First message",
+                "context": {
+                    "remediation": {"name": "r", "namespace": "ns"},
+                    "alert": {"name": "a", "status": "firing", "severity": "low"},
+                },
             },
-        })
+        )
         lines = resp1.text.strip().split("\n")
-        done_line = [l for l in lines if '"conversationId"' in l]
+        done_line = [line for line in lines if '"conversationId"' in line]
         assert done_line
         conv_id = json.loads(done_line[0].replace("data: ", ""))["conversationId"]
 
-        resp2 = await client.post("/v1/agent/chat", json={
-            "message": "Follow-up",
-            "conversationId": conv_id,
-            "context": {
-                "remediation": {"name": "r", "namespace": "ns"},
-                "alert": {"name": "a", "status": "firing", "severity": "low"},
+        resp2 = await client.post(
+            "/v1/agent/chat",
+            json={
+                "message": "Follow-up",
+                "conversationId": conv_id,
+                "context": {
+                    "remediation": {"name": "r", "namespace": "ns"},
+                    "alert": {"name": "a", "status": "firing", "severity": "low"},
+                },
             },
-        })
+        )
         assert resp2.status_code == 200
         assert conv_id in resp2.text
 
@@ -165,19 +189,24 @@ async def test_chat_ui_fence_parsing():
     """Verify that ```ui:type``` fences are emitted as ui_component events."""
     fenced_text = 'Before ```ui:visualization\n{"title": "Test", "queries": ["up"]}\n```After'
 
-    provider = MockProvider(events=[
-        TextDeltaEvent(text=fenced_text),
-        ResultEvent(text=fenced_text),
-    ])
+    provider = MockProvider(
+        events=[
+            TextDeltaEvent(text=fenced_text),
+            ResultEvent(text=fenced_text),
+        ]
+    )
     app = _make_app(provider)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        resp = await client.post("/v1/agent/chat", json={
-            "message": "Show metrics",
-            "context": {
-                "remediation": {"name": "r", "namespace": "ns"},
-                "alert": {"name": "a", "status": "firing", "severity": "low"},
+        resp = await client.post(
+            "/v1/agent/chat",
+            json={
+                "message": "Show metrics",
+                "context": {
+                    "remediation": {"name": "r", "namespace": "ns"},
+                    "alert": {"name": "a", "status": "firing", "severity": "low"},
+                },
             },
-        })
+        )
         body = resp.text
         assert "event: ui_component" in body
         assert "visualization" in body

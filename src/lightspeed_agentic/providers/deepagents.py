@@ -30,7 +30,7 @@ from lightspeed_agentic.types import (
 
 logger = logging.getLogger(__name__)
 
-_JSON_SCHEMA_TYPE_MAP: dict[str, type] = {
+_JSON_SCHEMA_TYPE_MAP: dict[str, type[Any]] = {
     "string": str,
     "integer": int,
     "number": float,
@@ -38,7 +38,7 @@ _JSON_SCHEMA_TYPE_MAP: dict[str, type] = {
 }
 
 
-def _json_schema_to_pydantic(schema: dict[str, Any], name: str = "OutputModel") -> type:
+def _json_schema_to_pydantic(schema: dict[str, Any], name: str = "OutputModel") -> Any:
     import pydantic
 
     if "properties" not in schema:
@@ -58,7 +58,7 @@ def _json_schema_to_pydantic(schema: dict[str, Any], name: str = "OutputModel") 
     return pydantic.create_model(name, **fields)
 
 
-def _resolve_field_type(schema: dict[str, Any], name: str) -> type:
+def _resolve_field_type(schema: dict[str, Any], name: str) -> Any:
     if "type" not in schema and "enum" not in schema:
         raise ValueError(f"Field {name!r} missing 'type'")
 
@@ -70,11 +70,10 @@ def _resolve_field_type(schema: dict[str, Any], name: str) -> type:
     if json_type == "array":
         if "items" not in schema:
             raise ValueError(f"Array field {name!r} missing 'items'")
-        inner = _resolve_field_type(schema["items"], name + "Item")
-        return list[inner]  # type: ignore[valid-type]
+        return list[Any]
 
     if "enum" in schema:
-        return Literal[tuple(schema["enum"])]  # type: ignore[valid-type]
+        return Literal[tuple(schema["enum"])]
 
     return _JSON_SCHEMA_TYPE_MAP.get(json_type, str)
 
@@ -96,6 +95,7 @@ def _resolve_model(model: str) -> Any:
     if os.environ.get("CLAUDE_CODE_USE_VERTEX") == "1" and model.startswith("claude"):
         if model not in _model_cache:
             from langchain_google_vertexai.model_garden import ChatAnthropicVertex
+
             _model_cache[model] = ChatAnthropicVertex(
                 model_name=model,
                 project=os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID", ""),
@@ -162,7 +162,9 @@ class DeepAgentsProvider(AgentProvider):
                                 input=json.dumps(tc.get("args", {}))[:TOOL_INPUT_MAX_CHARS],
                             )
                     elif msg.content:
-                        content = msg.content if isinstance(msg.content, str) else stringify(msg.content)
+                        content = (
+                            msg.content if isinstance(msg.content, str) else stringify(msg.content)
+                        )
                         if content:
                             yield TextDeltaEvent(text=content)
                             result_text = content

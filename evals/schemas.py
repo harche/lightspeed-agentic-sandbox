@@ -45,7 +45,10 @@ ANALYSIS_WITH_COMPONENTS_SCHEMA: dict[str, Any] = {
                                     "required": ["type", "description"],
                                 },
                             },
-                            "risk": {"type": "string", "enum": ["low", "medium", "high", "critical"]},
+                            "risk": {
+                                "type": "string",
+                                "enum": ["low", "medium", "high", "critical"],
+                            },
                             "reversible": {"type": "boolean"},
                             "estimatedImpact": {"type": "string"},
                         },
@@ -88,11 +91,19 @@ ANALYSIS_WITH_COMPONENTS_SCHEMA: dict[str, Any] = {
                                         "namespace": {"type": "string"},
                                         "apiGroups": {"type": "array", "items": {"type": "string"}},
                                         "resources": {"type": "array", "items": {"type": "string"}},
-                                        "resourceNames": {"type": "array", "items": {"type": "string"}},
+                                        "resourceNames": {
+                                            "type": "array",
+                                            "items": {"type": "string"},
+                                        },
                                         "verbs": {"type": "array", "items": {"type": "string"}},
                                         "justification": {"type": "string"},
                                     },
-                                    "required": ["apiGroups", "resources", "verbs", "justification"],
+                                    "required": [
+                                        "apiGroups",
+                                        "resources",
+                                        "verbs",
+                                        "justification",
+                                    ],
                                 },
                             },
                             "clusterScoped": {
@@ -102,11 +113,19 @@ ANALYSIS_WITH_COMPONENTS_SCHEMA: dict[str, Any] = {
                                     "properties": {
                                         "apiGroups": {"type": "array", "items": {"type": "string"}},
                                         "resources": {"type": "array", "items": {"type": "string"}},
-                                        "resourceNames": {"type": "array", "items": {"type": "string"}},
+                                        "resourceNames": {
+                                            "type": "array",
+                                            "items": {"type": "string"},
+                                        },
                                         "verbs": {"type": "array", "items": {"type": "string"}},
                                         "justification": {"type": "string"},
                                     },
-                                    "required": ["apiGroups", "resources", "verbs", "justification"],
+                                    "required": [
+                                        "apiGroups",
+                                        "resources",
+                                        "verbs",
+                                        "justification",
+                                    ],
                                 },
                             },
                         },
@@ -154,8 +173,14 @@ ANALYSIS_WITH_COMPONENTS_SCHEMA: dict[str, Any] = {
                                 "audit": {
                                     "type": "object",
                                     "properties": {
-                                        "outcome": {"type": "string", "enum": ["pass", "fail", "partial"]},
-                                        "checks_performed": {"type": "array", "items": {"type": "string"}},
+                                        "outcome": {
+                                            "type": "string",
+                                            "enum": ["pass", "fail", "partial"],
+                                        },
+                                        "checks_performed": {
+                                            "type": "array",
+                                            "items": {"type": "string"},
+                                        },
                                         "findings": {
                                             "type": "array",
                                             "items": {
@@ -163,7 +188,10 @@ ANALYSIS_WITH_COMPONENTS_SCHEMA: dict[str, Any] = {
                                                 "properties": {
                                                     "check": {"type": "string"},
                                                     "result": {"type": "string"},
-                                                    "severity": {"type": "string", "enum": ["info", "warning", "critical"]},
+                                                    "severity": {
+                                                        "type": "string",
+                                                        "enum": ["info", "warning", "critical"],
+                                                    },
                                                     "detail": {"type": "string"},
                                                 },
                                                 "required": ["check", "result", "severity"],
@@ -177,7 +205,14 @@ ANALYSIS_WITH_COMPONENTS_SCHEMA: dict[str, Any] = {
                         },
                     },
                 },
-                "required": ["title", "diagnosis", "proposal", "rbac", "verification", "components"],
+                "required": [
+                    "title",
+                    "diagnosis",
+                    "proposal",
+                    "rbac",
+                    "verification",
+                    "components",
+                ],
             },
         },
     },

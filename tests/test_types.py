@@ -63,7 +63,7 @@ def test_query_options_defaults():
         max_turns=10,
         max_budget_usd=1.0,
         allowed_tools=["Bash"],
-        cwd="/tmp",
+        cwd="/workspace",
     )
     assert opts.output_schema is None
     assert opts.stream is False

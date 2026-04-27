@@ -9,10 +9,13 @@ import pytest
 
 from .credentials import PROVIDER_NAMES, detect_all
 from .report import pytest_addoption, pytest_configure, store_eval_result  # noqa: F401
-from .runner import AnalyzeResult, run_analyze as _run_analyze
+from .runner import AnalyzeResult
+from .runner import run_analyze as _run_analyze
 
 
-def _parse_env_map(var: str, _cache: dict[str, dict[str, str]] = {}) -> dict[str, str]:
+def _parse_env_map(var: str, _cache: dict[str, dict[str, str]] | None = None) -> dict[str, str]:
+    if _cache is None:
+        _cache = {}
     if var not in _cache:
         raw = os.environ.get(var, "")
         result = {}
@@ -34,17 +37,23 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     params = []
     for name in PROVIDER_NAMES:
         if name not in server_urls:
-            params.append(pytest.param(
-                name, id=name,
-                marks=pytest.mark.skip(reason=f"No server for {name}"),
-            ))
+            params.append(
+                pytest.param(
+                    name,
+                    id=name,
+                    marks=pytest.mark.skip(reason=f"No server for {name}"),
+                )
+            )
             continue
         status = creds[name]
         if not status.available:
-            params.append(pytest.param(
-                name, id=name,
-                marks=pytest.mark.skip(reason=status.reason),
-            ))
+            params.append(
+                pytest.param(
+                    name,
+                    id=name,
+                    marks=pytest.mark.skip(reason=status.reason),
+                )
+            )
             continue
         params.append(pytest.param(name, id=name))
     metafunc.parametrize("provider_name", params)

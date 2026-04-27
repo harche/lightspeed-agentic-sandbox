@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import re
@@ -42,7 +41,9 @@ _conversations: dict[str, _Conversation] = {}
 
 def _cleanup() -> None:
     now = time.time()
-    expired = [k for k, v in _conversations.items() if now - v.last_accessed_at > _CONVERSATION_TTL_S]
+    expired = [
+        k for k, v in _conversations.items() if now - v.last_accessed_at > _CONVERSATION_TTL_S
+    ]
     for k in expired:
         del _conversations[k]
     if len(_conversations) > _MAX_CONVERSATIONS:
@@ -97,22 +98,24 @@ class _FenceBuffer:
                 if close < 0:
                     break
                 json_str = self.buf[:close].strip()
-                self.buf = self.buf[close + 3:]
+                self.buf = self.buf[close + 3 :]
                 self.in_fence = False
                 try:
                     props = json.loads(json_str)
-                    self._pending.append(_sse_event("ui_component", {"type": self.fence_type, "props": props}))
+                    self._pending.append(
+                        _sse_event("ui_component", {"type": self.fence_type, "props": props})
+                    )
                 except (json.JSONDecodeError, TypeError):
                     pass
                 self.fence_type = ""
             else:
                 m = _FENCE_OPEN.search(self.buf)
                 if m:
-                    before = self.buf[:m.start()]
+                    before = self.buf[: m.start()]
                     if before:
                         self._pending.append(_sse_event("text", {"content": before}))
                     self.fence_type = m.group(1)
-                    self.buf = self.buf[m.end():]
+                    self.buf = self.buf[m.end() :]
                     self.in_fence = True
                 else:
                     partial = _FENCE_PARTIAL.search(self.buf)
@@ -124,7 +127,9 @@ class _FenceBuffer:
 
     def flush(self) -> None:
         if self.in_fence:
-            self._pending.append(_sse_event("text", {"content": "```ui:" + self.fence_type + "\n" + self.buf}))
+            self._pending.append(
+                _sse_event("text", {"content": "```ui:" + self.fence_type + "\n" + self.buf})
+            )
         elif self.buf:
             self._pending.append(_sse_event("text", {"content": self.buf}))
         self.buf = ""
@@ -206,7 +211,7 @@ def register_chat_routes(
             conversation.messages.append(_ConversationEntry(role="user", content=req.message))
             # Cap stored messages to prevent unbounded growth
             if len(conversation.messages) > _MAX_HISTORY_MESSAGES * 2:
-                conversation.messages = conversation.messages[-_MAX_HISTORY_MESSAGES * 2:]
+                conversation.messages = conversation.messages[-_MAX_HISTORY_MESSAGES * 2 :]
 
             yield _sse_event("status", {"status": "thinking"})
 
@@ -215,18 +220,20 @@ def register_chat_routes(
             fence = _FenceBuffer()
 
             try:
-                result = provider.query(ProviderQueryOptions(
-                    prompt=user_prompt,
-                    system_prompt=system_prompt,
-                    model=model,
-                    max_turns=max_turns,
-                    max_budget_usd=max_budget_usd,
-                    allowed_tools=DEFAULT_ALLOWED_TOOLS,
-                    cwd=skills_dir,
-                    stream=True,
-                ))
+                result = provider.query(
+                    ProviderQueryOptions(
+                        prompt=user_prompt,
+                        system_prompt=system_prompt,
+                        model=model,
+                        max_turns=max_turns,
+                        max_budget_usd=max_budget_usd,
+                        allowed_tools=DEFAULT_ALLOWED_TOOLS,
+                        cwd=skills_dir,
+                        stream=True,
+                    )
+                )
 
-                async def run() -> None:
+                async def run() -> AsyncGenerator[str, None]:
                     nonlocal agent_text, total_cost
                     async for event in result:
                         if await request.is_disconnected():
@@ -239,7 +246,11 @@ def register_chat_routes(
                             case "content_block_stop":
                                 fence.flush()
                             case "tool_call":
-                                fence.emit(_sse_event("tool_call", {"name": event.name, "input": event.input}))
+                                fence.emit(
+                                    _sse_event(
+                                        "tool_call", {"name": event.name, "input": event.input}
+                                    )
+                                )
                             case "tool_result":
                                 fence.emit(_sse_event("tool_result", {"output": event.output}))
                             case "result":
@@ -253,7 +264,7 @@ def register_chat_routes(
                 async for chunk in run():
                     yield chunk
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 yield _sse_event("error", {"message": f"Chat timed out after {timeout_ms}ms"})
             except Exception as e:
                 logger.exception("[agent] Chat error")
@@ -265,13 +276,21 @@ def register_chat_routes(
 
             if agent_text:
                 clean_text = re.sub(r"```ui:\w+\n[\s\S]*?```", "", agent_text).strip()
-                conversation.messages.append(_ConversationEntry(role="assistant", content=clean_text))
+                conversation.messages.append(
+                    _ConversationEntry(role="assistant", content=clean_text)
+                )
 
             yield _sse_event("done", {"conversationId": conversation.id})
-            logger.info("[agent] Chat complete: conversation=%s, cost=$%.4f", conversation.id, total_cost)
+            logger.info(
+                "[agent] Chat complete: conversation=%s, cost=$%.4f", conversation.id, total_cost
+            )
 
-        return StreamingResponse(stream(), media_type="text/event-stream", headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        })
+        return StreamingResponse(
+            stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )

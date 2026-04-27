@@ -9,7 +9,25 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+
+    class AgentOutputSchemaBase:
+        """Type-checker stub for the optional openai-agents base class."""
+
+        pass
+
+else:
+    try:
+        from agents.agent_output import AgentOutputSchemaBase
+    except ImportError:
+
+        class AgentOutputSchemaBase:  # pragma: no cover - optional SDK fallback
+            """Fallback base so the module imports without the openai extra."""
+
+            pass
+
 
 from lightspeed_agentic.tools import resolve_skills_dir
 from lightspeed_agentic.types import (
@@ -25,9 +43,6 @@ from lightspeed_agentic.types import (
     ToolResultEvent,
     stringify,
 )
-
-
-from agents.agent_output import AgentOutputSchemaBase
 
 
 class _RawJsonSchema(AgentOutputSchemaBase):
@@ -100,6 +115,7 @@ class OpenAIProvider(AgentProvider):
 
         if self._client is None:
             from openai import AsyncOpenAI
+
             self._client = AsyncOpenAI(base_url=os.environ.get("OPENAI_BASE_URL"))
         model = OpenAIResponsesModel(model=options.model, openai_client=self._client)
 
@@ -145,11 +161,17 @@ class OpenAIProvider(AgentProvider):
             elif isinstance(event, RunItemStreamEvent):
                 if isinstance(event.item, ToolCallItem):
                     raw = event.item.raw_item
-                    name = getattr(raw, "name", None) or (raw.get("name") if isinstance(raw, dict) else "") or ""
+                    name = (
+                        getattr(raw, "name", None)
+                        or (raw.get("name") if isinstance(raw, dict) else "")
+                        or ""
+                    )
                     args = getattr(raw, "arguments", None) or ""
                     yield ToolCallEvent(name=name, input=args[:TOOL_INPUT_MAX_CHARS])
                 elif isinstance(event.item, ToolCallOutputItem):
-                    yield ToolResultEvent(output=stringify(event.item.output)[:TOOL_OUTPUT_MAX_CHARS])
+                    yield ToolResultEvent(
+                        output=stringify(event.item.output)[:TOOL_OUTPUT_MAX_CHARS]
+                    )
 
         yield ContentBlockStopEvent()
 

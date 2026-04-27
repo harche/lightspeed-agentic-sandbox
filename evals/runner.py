@@ -63,7 +63,8 @@ def assert_tool_token(
     matches = list(eval_workspace.rglob(token_file_name))
     if not matches:
         raise AssertionError(
-            f"{provider_name} did not run {script_name} (no {token_file_name} found in {eval_workspace})"
+            f"{provider_name} did not run {script_name} "
+            f"(no {token_file_name} found in {eval_workspace})"
         )
 
     response_text = json.dumps(result.raw)
