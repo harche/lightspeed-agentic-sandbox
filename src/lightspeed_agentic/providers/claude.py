@@ -48,10 +48,16 @@ class ClaudeProvider(AgentProvider):
             cwd=options.cwd,
             skills="all",
             include_partial_messages=True,
-            **({"output_format": {
-                "type": "json_schema",
-                "schema": options.output_schema,
-            }} if options.output_schema else {}),
+            **(
+                {
+                    "output_format": {
+                        "type": "json_schema",
+                        "schema": options.output_schema,
+                    }
+                }
+                if options.output_schema
+                else {}
+            ),
         )
 
         async for msg in query(prompt=options.prompt, options=sdk_options):
@@ -84,7 +90,11 @@ class ClaudeProvider(AgentProvider):
 
             if isinstance(msg, ResultMessage):
                 structured = getattr(msg, "structured_output", None)
-                text = stringify(structured) if structured is not None else (getattr(msg, "result", None) or "")
+                text = (
+                    stringify(structured)
+                    if structured is not None
+                    else (getattr(msg, "result", None) or "")
+                )
 
                 usage = getattr(msg, "usage", None)
                 yield ResultEvent(

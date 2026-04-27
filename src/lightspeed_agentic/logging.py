@@ -42,9 +42,16 @@ class EventLogger:
                 self._flush_thinking()
             case "tool_call":
                 self._flush_thinking()
-                logger.info("[provider:%s] tool_use: %s(%s)", self._phase, event.name, event.input[:MAX_TOOL_INPUT_LOG])
+                logger.info(
+                    "[provider:%s] tool_use: %s(%s)",
+                    self._phase,
+                    event.name,
+                    event.input[:MAX_TOOL_INPUT_LOG],
+                )
             case "tool_result":
-                logger.info("[provider:%s] tool_result: %s", self._phase, event.output[:MAX_TOOL_OUTPUT_LOG])
+                logger.info(
+                    "[provider:%s] tool_result: %s", self._phase, event.output[:MAX_TOOL_OUTPUT_LOG]
+                )
             case "result":
                 self._flush_thinking()
                 logger.info(
@@ -54,4 +61,6 @@ class EventLogger:
                     event.input_tokens + event.output_tokens,
                 )
                 if event.text:
-                    logger.info("[provider:%s] output: %s", self._phase, event.text[:MAX_RESULT_LOG])
+                    logger.info(
+                        "[provider:%s] output: %s", self._phase, event.text[:MAX_RESULT_LOG]
+                    )

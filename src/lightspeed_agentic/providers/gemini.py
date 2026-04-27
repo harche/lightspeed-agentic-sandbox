@@ -56,7 +56,6 @@ class GeminiProvider(AgentProvider):
     async def query(self, options: ProviderQueryOptions) -> AsyncIterator[ProviderEvent]:
         from google.adk.agents import Agent, RunConfig
         from google.adk.agents.run_config import StreamingMode
-        from google.adk.features import FeatureName, override_feature_enabled
         from google.adk.runners import Runner
         from google.adk.sessions import InMemorySessionService
         from google.adk.tools import exit_loop, google_search, url_context
@@ -75,7 +74,8 @@ class GeminiProvider(AgentProvider):
 
         bash.run_async = _auto_confirm_run
 
-        # TODO: investigate more ADK built-in tools (load_artifacts, load_memory, computer_use, file_search, mcp_servers)
+        # TODO: investigate more ADK built-in tools:
+        # load_artifacts, load_memory, computer_use, file_search, mcp_servers
         tools: list[Any] = [
             bash,
             google_search,
@@ -119,9 +119,7 @@ class GeminiProvider(AgentProvider):
         )
 
         user_id = f"agent-{int(time.time())}"
-        session = await session_service.create_session(
-            app_name="lightspeed", user_id=user_id
-        )
+        session = await session_service.create_session(app_name="lightspeed", user_id=user_id)
 
         streaming_mode = StreamingMode.SSE if options.stream else StreamingMode.NONE
         run_config = RunConfig(

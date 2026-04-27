@@ -1,4 +1,8 @@
-"""Skill invocation test — model discovers skill, executes tool, returns complex structured output."""
+"""Skill invocation test.
+
+Model discovers the skill, executes the tool, and returns complex structured
+output.
+"""
 
 from __future__ import annotations
 
@@ -15,7 +19,8 @@ from .schemas import ANALYSIS_WITH_COMPONENTS_SCHEMA
 @pytest.mark.eval
 @pytest.mark.asyncio
 async def test_find_token_skill(
-    provider_name: str, eval_workspace: Path,
+    provider_name: str,
+    eval_workspace: Path,
     eval_runner: Callable[..., AnalyzeResult],
 ) -> None:
     """Provider discovers find-token skill, executes it, returns analysis with components."""

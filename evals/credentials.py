@@ -22,7 +22,12 @@ class ProviderCredentialStatus:
 
 def _run_quiet(cmd: list[str], timeout: int = 10) -> tuple[bool, str]:
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        result = subprocess.run(  # noqa: S603
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
         return result.returncode == 0, result.stdout.strip()
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return False, ""
@@ -31,42 +36,63 @@ def _run_quiet(cmd: list[str], timeout: int = 10) -> tuple[bool, str]:
 def _check_claude() -> ProviderCredentialStatus:
     if os.environ.get("ANTHROPIC_API_KEY"):
         return ProviderCredentialStatus(
-            "claude", True, "env", "ANTHROPIC_API_KEY set",
+            "claude",
+            True,
+            "env",
+            "ANTHROPIC_API_KEY set",
         )
 
     if os.environ.get("CLAUDE_CODE_USE_VERTEX") == "1":
         gac = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
         if gac and os.path.isfile(gac):
             return ProviderCredentialStatus(
-                "claude", True, "env", "Vertex AI credentials file",
+                "claude",
+                True,
+                "env",
+                "Vertex AI credentials file",
             )
         ok, _ = _run_quiet(["gcloud", "auth", "application-default", "print-access-token"])
         if ok:
             return ProviderCredentialStatus(
-                "claude", True, "gcloud", "gcloud application-default credentials",
+                "claude",
+                True,
+                "gcloud",
+                "gcloud application-default credentials",
             )
         return ProviderCredentialStatus(
-            "claude", False, "none",
+            "claude",
+            False,
+            "none",
             "CLAUDE_CODE_USE_VERTEX=1 but no credentials file or gcloud ADC",
         )
 
     if os.environ.get("CLAUDE_CODE_USE_BEDROCK") == "1":
         if os.environ.get("AWS_ACCESS_KEY_ID") and os.environ.get("AWS_SECRET_ACCESS_KEY"):
             return ProviderCredentialStatus(
-                "claude", True, "env", "AWS Bedrock credentials via env vars",
+                "claude",
+                True,
+                "env",
+                "AWS Bedrock credentials via env vars",
             )
         ok, _ = _run_quiet(["aws", "configure", "get", "aws_access_key_id"])
         if ok:
             return ProviderCredentialStatus(
-                "claude", True, "aws_cli", "AWS credentials via aws configure",
+                "claude",
+                True,
+                "aws_cli",
+                "AWS credentials via aws configure",
             )
         return ProviderCredentialStatus(
-            "claude", False, "none",
+            "claude",
+            False,
+            "none",
             "CLAUDE_CODE_USE_BEDROCK=1 but no AWS credentials found",
         )
 
     return ProviderCredentialStatus(
-        "claude", False, "none",
+        "claude",
+        False,
+        "none",
         "ANTHROPIC_API_KEY not set (or set CLAUDE_CODE_USE_VERTEX=1 / CLAUDE_CODE_USE_BEDROCK=1)",
     )
 
@@ -74,48 +100,71 @@ def _check_claude() -> ProviderCredentialStatus:
 def _check_gemini() -> ProviderCredentialStatus:
     if os.environ.get("GOOGLE_API_KEY"):
         return ProviderCredentialStatus(
-            "gemini", True, "env", "GOOGLE_API_KEY set",
+            "gemini",
+            True,
+            "env",
+            "GOOGLE_API_KEY set",
         )
 
     # Bridge GEMINI_API_KEY → GOOGLE_API_KEY (ADK reads GOOGLE_API_KEY)
     gemini_key = os.environ.get("GEMINI_API_KEY")
     if gemini_key:
         return ProviderCredentialStatus(
-            "gemini", True, "env", "GEMINI_API_KEY set",
+            "gemini",
+            True,
+            "env",
+            "GEMINI_API_KEY set",
             env_vars={"GOOGLE_API_KEY": gemini_key},
         )
 
     gac = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
     if gac and os.path.isfile(gac):
         return ProviderCredentialStatus(
-            "gemini", True, "env", "GOOGLE_APPLICATION_CREDENTIALS file",
+            "gemini",
+            True,
+            "env",
+            "GOOGLE_APPLICATION_CREDENTIALS file",
         )
 
     ok, _ = _run_quiet(["gcloud", "auth", "application-default", "print-access-token"])
     if ok:
         return ProviderCredentialStatus(
-            "gemini", True, "gcloud", "gcloud application-default credentials",
+            "gemini",
+            True,
+            "gcloud",
+            "gcloud application-default credentials",
         )
 
     return ProviderCredentialStatus(
-        "gemini", False, "none",
-        "No Gemini credentials: set GOOGLE_API_KEY, GEMINI_API_KEY, GOOGLE_APPLICATION_CREDENTIALS, or configure gcloud ADC",
+        "gemini",
+        False,
+        "none",
+        "No Gemini credentials: set GOOGLE_API_KEY, GEMINI_API_KEY, "
+        "GOOGLE_APPLICATION_CREDENTIALS, or configure gcloud ADC",
     )
 
 
 def _check_openai() -> ProviderCredentialStatus:
     if os.environ.get("OPENAI_API_KEY"):
         return ProviderCredentialStatus(
-            "openai", True, "env", "OPENAI_API_KEY set",
+            "openai",
+            True,
+            "env",
+            "OPENAI_API_KEY set",
         )
 
     if os.environ.get("OPENAI_BASE_URL"):
         return ProviderCredentialStatus(
-            "openai", True, "env", "OPENAI_BASE_URL set (custom endpoint, no key required)",
+            "openai",
+            True,
+            "env",
+            "OPENAI_BASE_URL set (custom endpoint, no key required)",
         )
 
     return ProviderCredentialStatus(
-        "openai", False, "none",
+        "openai",
+        False,
+        "none",
         "OPENAI_API_KEY not set (or set OPENAI_BASE_URL for keyless endpoints)",
     )
 
@@ -126,47 +175,70 @@ def _check_deepagents() -> ProviderCredentialStatus:
     if model.startswith("gpt") or model.startswith("o1") or model.startswith("o3"):
         if os.environ.get("OPENAI_API_KEY"):
             return ProviderCredentialStatus(
-                "deepagents", True, "env", f"OPENAI_API_KEY set (model: {model})",
+                "deepagents",
+                True,
+                "env",
+                f"OPENAI_API_KEY set (model: {model})",
             )
         return ProviderCredentialStatus(
-            "deepagents", False, "none",
+            "deepagents",
+            False,
+            "none",
             f"OPENAI_API_KEY not set for model {model}",
         )
 
-    if model.startswith("gemini"):
-        if os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY"):
-            return ProviderCredentialStatus(
-                "deepagents", True, "env", f"Google API key set (model: {model})",
-                env_vars={"GOOGLE_API_KEY": os.environ.get("GEMINI_API_KEY", "")}
-                if os.environ.get("GEMINI_API_KEY") and not os.environ.get("GOOGLE_API_KEY")
-                else {},
-            )
+    if model.startswith("gemini") and (
+        os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+    ):
+        return ProviderCredentialStatus(
+            "deepagents",
+            True,
+            "env",
+            f"Google API key set (model: {model})",
+            env_vars={"GOOGLE_API_KEY": os.environ.get("GEMINI_API_KEY", "")}
+            if os.environ.get("GEMINI_API_KEY") and not os.environ.get("GOOGLE_API_KEY")
+            else {},
+        )
 
     if os.environ.get("ANTHROPIC_API_KEY"):
         return ProviderCredentialStatus(
-            "deepagents", True, "env", "ANTHROPIC_API_KEY set",
+            "deepagents",
+            True,
+            "env",
+            "ANTHROPIC_API_KEY set",
         )
 
     gac = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
     if gac and os.path.isfile(gac):
         return ProviderCredentialStatus(
-            "deepagents", True, "env", "GOOGLE_APPLICATION_CREDENTIALS file (Vertex AI)",
+            "deepagents",
+            True,
+            "env",
+            "GOOGLE_APPLICATION_CREDENTIALS file (Vertex AI)",
         )
 
     ok, _ = _run_quiet(["gcloud", "auth", "application-default", "print-access-token"])
     if ok:
         return ProviderCredentialStatus(
-            "deepagents", True, "gcloud", "gcloud application-default credentials",
+            "deepagents",
+            True,
+            "gcloud",
+            "gcloud application-default credentials",
         )
 
     return ProviderCredentialStatus(
-        "deepagents", False, "none",
-        "No DeepAgents credentials: set ANTHROPIC_API_KEY, GOOGLE_API_KEY, OPENAI_API_KEY, or configure gcloud ADC",
+        "deepagents",
+        False,
+        "none",
+        "No DeepAgents credentials: set ANTHROPIC_API_KEY, GOOGLE_API_KEY, "
+        "OPENAI_API_KEY, or configure gcloud ADC",
     )
 
 
 def _rewrap(status: ProviderCredentialStatus, name: str) -> ProviderCredentialStatus:
-    return ProviderCredentialStatus(name, status.available, status.source, status.reason, status.env_vars)
+    return ProviderCredentialStatus(
+        name, status.available, status.source, status.reason, status.env_vars
+    )
 
 
 def _check_deepagents_gemini() -> ProviderCredentialStatus:

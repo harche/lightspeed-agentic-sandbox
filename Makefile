@@ -3,7 +3,7 @@ UV := uv
 CONTAINER_RUNTIME := $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
 IMAGE := lightspeed-agentic-sandbox:latest
 
-.PHONY: install install-all lock test lint format eval eval-report image clean help
+.PHONY: install install-all lock test lint format mypy verify eval eval-report image clean help
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -22,11 +22,19 @@ test: ## Run unit tests
 	$(UV) run pytest tests/ -v
 
 lint: ## Run ruff linter
-	$(UV) run ruff check src/ tests/ evals/
+	$(UV) run ruff check .
 
 format: ## Auto-format with ruff
-	$(UV) run ruff format src/ tests/ evals/
-	$(UV) run ruff check --fix src/ tests/ evals/
+	$(UV) run ruff format .
+	$(UV) run ruff check . --fix
+
+mypy: ## Run mypy against application package
+	$(UV) run mypy src/lightspeed_agentic
+
+verify: ## Run non-mutating formatting, lint, and type checks
+	$(UV) run ruff format . --check
+	$(UV) run ruff check .
+	$(UV) run mypy src/lightspeed_agentic
 
 image: ## Build production container image
 	$(CONTAINER_RUNTIME) build -t $(IMAGE) .

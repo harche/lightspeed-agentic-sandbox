@@ -15,6 +15,7 @@ from lightspeed_agentic.types import (
 __all__ = [
     "AgentProvider",
     "ContentBlockStopEvent",
+    "EventLogger",
     "ProviderEvent",
     "ProviderQueryOptions",
     "ResultEvent",
@@ -23,5 +24,4 @@ __all__ = [
     "ToolCallEvent",
     "ToolResultEvent",
     "create_provider",
-    "EventLogger",
 ]

@@ -10,10 +10,10 @@ import os
 
 from fastapi import FastAPI
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-
 from lightspeed_agentic.factory import create_provider
 from lightspeed_agentic.routes import build_router
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
 app = FastAPI(title="lightspeed-agentic-sandbox")
 

@@ -50,9 +50,15 @@ class TestResult:
 class Report:
     timestamp: str = ""
     duration_seconds: float = 0.0
-    summary: dict[str, int] = field(default_factory=lambda: {
-        "total": 0, "passed": 0, "failed": 0, "skipped": 0, "error": 0,
-    })
+    summary: dict[str, int] = field(
+        default_factory=lambda: {
+            "total": 0,
+            "passed": 0,
+            "failed": 0,
+            "skipped": 0,
+            "error": 0,
+        }
+    )
     providers: dict[str, dict[str, str]] = field(default_factory=dict)
     results: list[dict[str, Any]] = field(default_factory=list)
 
@@ -64,6 +70,7 @@ class EvalReportPlugin:
         self.start_time = 0.0
 
     def pytest_sessionstart(self, session: pytest.Session) -> None:
+        del session
         self.start_time = time.time()
         self.report.timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
@@ -118,6 +125,7 @@ class EvalReportPlugin:
             self.report.summary["skipped"] += 1
 
     def pytest_sessionfinish(self, session: pytest.Session, exitstatus: int) -> None:
+        del session, exitstatus
         self.report.duration_seconds = round(time.time() - self.start_time, 2)
         Path(self.report_path).write_text(json.dumps(asdict(self.report), indent=2) + "\n")
 

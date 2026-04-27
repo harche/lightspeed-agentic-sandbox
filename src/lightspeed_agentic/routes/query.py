@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import os
+from typing import Any
 
 from fastapi import APIRouter
 
@@ -22,7 +23,7 @@ from lightspeed_agentic.types import DEFAULT_MODEL, AgentProvider, ProviderQuery
 logger = logging.getLogger("lightspeed_agentic")
 
 
-def _format_context_prefix(context: dict) -> str:
+def _format_context_prefix(context: dict[str, Any]) -> str:
     lines: list[str] = ["[context]"]
 
     if ns := context.get("targetNamespaces"):
@@ -40,7 +41,9 @@ def _format_context_prefix(context: dict) -> str:
         lines.append(f"Title: {opt['title']}")
         lines.append(f"Diagnosis: {opt['diagnosis']['rootCause']}")
         lines.append(f"Plan: {opt['proposal']['description']}")
-        lines.append(f"Risk: {opt['proposal']['risk']}, Reversible: {opt['proposal']['reversible']}")
+        lines.append(
+            f"Risk: {opt['proposal']['risk']}, Reversible: {opt['proposal']['reversible']}"
+        )
         if actions := opt["proposal"].get("actions"):
             lines.append("Actions to execute:")
             for action in actions:
@@ -71,16 +74,18 @@ async def _handle_query(
     logger.info("[agent] Starting %s query (model=%s, provider=%s)", phase, model, provider.name)
 
     try:
-        result = provider.query(ProviderQueryOptions(
-            prompt=prompt,
-            system_prompt=system_prompt,
-            model=model,
-            max_turns=max_turns,
-            max_budget_usd=5.0,
-            allowed_tools=DEFAULT_ALLOWED_TOOLS,
-            cwd=skills_dir,
-            output_schema=req.outputSchema,
-        ))
+        result = provider.query(
+            ProviderQueryOptions(
+                prompt=prompt,
+                system_prompt=system_prompt,
+                model=model,
+                max_turns=max_turns,
+                max_budget_usd=5.0,
+                allowed_tools=DEFAULT_ALLOWED_TOOLS,
+                cwd=skills_dir,
+                output_schema=req.outputSchema,
+            )
+        )
 
         text = ""
         cost = 0.0
@@ -99,7 +104,7 @@ async def _handle_query(
 
         await asyncio.wait_for(run(), timeout=timeout_ms / 1000)
 
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return QueryResponse(success=False, summary=f"{phase} timed out after {timeout_ms}ms")
     except Exception as e:
         logger.exception("[agent] %s error", phase)
@@ -112,7 +117,9 @@ async def _handle_query(
         parsed = json.loads(text)
         if not isinstance(parsed, dict):
             raise TypeError("expected dict")
-        logger.info("[agent] %s complete: success=%s, cost=$%.4f", phase, parsed.get("success", True), cost)
+        logger.info(
+            "[agent] %s complete: success=%s, cost=$%.4f", phase, parsed.get("success", True), cost
+        )
         return QueryResponse(
             success=parsed.get("success", True),
             summary=parsed.get("summary", text),
@@ -149,13 +156,13 @@ def register_query_routes(
     analysis_timeout_ms: int,
     execution_timeout_ms: int,
 ) -> None:
-    _MODEL_ENV_VARS = {
+    model_env_vars = {
         "claude": "ANTHROPIC_MODEL",
         "gemini": "GEMINI_MODEL",
         "openai": "OPENAI_MODEL",
         "deepagents": "DEEPAGENTS_MODEL",
     }
-    env_var = _MODEL_ENV_VARS.get(provider.name, "ANTHROPIC_MODEL")
+    env_var = model_env_vars.get(provider.name, "ANTHROPIC_MODEL")
     resolved_model = model or os.environ.get(env_var, DEFAULT_MODEL)
     timeouts = {"analysis": analysis_timeout_ms, "execution": execution_timeout_ms}
 

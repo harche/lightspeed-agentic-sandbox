@@ -1,5 +1,7 @@
 """Tests for provider factory."""
 
+import importlib
+
 import pytest
 
 from lightspeed_agentic.factory import create_provider
@@ -28,3 +30,8 @@ def test_create_provider_explicit_name():
             assert provider.name == name
         except ImportError:
             pass
+
+
+def test_openai_provider_module_imports_without_optional_sdk():
+    module = importlib.import_module("lightspeed_agentic.providers.openai")
+    assert module.OpenAIProvider().name == "openai"
