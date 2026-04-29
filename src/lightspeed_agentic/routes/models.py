@@ -27,7 +27,7 @@ class ApprovedProposal(BaseModel):
     description: str
     actions: list[ApprovedAction] = []
     risk: str
-    reversible: bool
+    reversible: Literal["Reversible", "Irreversible", "Partial"]
 
 
 class ApprovedOption(BaseModel):
