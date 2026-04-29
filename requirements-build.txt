@@ -1,9 +1,5 @@
 #
 # Build dependencies for hermetic builds.
-# Currently empty — we use allow_binary=true in prefetch-input,
-# so pre-built wheels are fetched instead of building from source.
-#
-# To populate this file (if switching to source-only builds):
-#   pybuild-deps compile --output-file=requirements-build.txt \
-#       requirements.x86_64.txt requirements.aarch64.txt
+# Empty because we use "binary": {} in prefetch-input, which fetches
+# pre-built wheels for all packages. No source compilation needed.
 #
