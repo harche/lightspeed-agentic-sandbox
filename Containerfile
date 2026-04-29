@@ -29,9 +29,11 @@ RUN unset PIP_INSTALL_OPTIONS PIP_TARGET PIP_HOME PIP_PREFIX 2>/dev/null; \
         -r requirements.$(uname -m).txt
 
 # Install claude-code from prefetched npm packages.
-# In hermetic builds, Cachi2 configures npm to use the prefetched registry.
+# Cachi2 sets npm registry to the prefetched local mirror via cachi2.env.
 COPY package.json package-lock.json ./
-RUN dnf install -y --nodocs nodejs && dnf clean all && \
+RUN dnf install -y --nodocs nodejs && dnf clean all
+RUN . /cachi2/cachi2.env 2>/dev/null || true && \
+    npm ci --ignore-scripts && \
     npm install -g @anthropic-ai/claude-code
 
 # ---------------------------------------------------------------------------
