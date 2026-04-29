@@ -30,11 +30,13 @@ RUN unset PIP_INSTALL_OPTIONS PIP_TARGET PIP_HOME PIP_PREFIX 2>/dev/null; \
 
 # Install claude-code from prefetched npm packages.
 # Cachi2 sets npm registry to the prefetched local mirror via cachi2.env.
+# npm ci installs from lockfile using the prefetched cache, then we link
+# the CLI globally from node_modules (npm install -g would bypass cachi2).
 COPY package.json package-lock.json ./
 RUN dnf install -y --nodocs nodejs && dnf clean all
 RUN . /cachi2/cachi2.env 2>/dev/null || true && \
     npm ci --ignore-scripts && \
-    npm install -g @anthropic-ai/claude-code
+    ln -s /app/node_modules/@anthropic-ai/claude-code/bin/claude.exe /usr/local/bin/claude
 
 # ---------------------------------------------------------------------------
 # Runtime stage: minimal image with only what the agent needs
@@ -66,9 +68,9 @@ RUN dnf install -y --nodocs nodejs && dnf clean all
 # Copy Python site-packages from builder
 COPY --from=builder /app/site-packages /opt/app-root/lib64/python3.12/site-packages
 
-# Copy claude-code global npm installation from builder
-COPY --from=builder /usr/local/lib/node_modules /usr/local/lib/node_modules
-COPY --from=builder /usr/local/bin/claude /usr/local/bin/claude
+# Copy claude-code npm installation from builder
+COPY --from=builder /app/node_modules /app/node_modules
+RUN ln -s /app/node_modules/@anthropic-ai/claude-code/bin/claude.exe /usr/local/bin/claude
 
 # Install generic-fetched binaries (oc, kubectl, ripgrep, dumb-init).
 # In hermetic builds these are at /cachi2/output/deps/generic/.
