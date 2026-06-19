@@ -50,7 +50,6 @@ ANALYSIS_WITH_COMPONENTS_SCHEMA: dict[str, Any] = {
                                 "enum": ["low", "medium", "high", "critical"],
                             },
                             "reversible": {"type": "boolean"},
-                            "estimatedImpact": {"type": "string"},
                         },
                         "required": ["description", "actions", "risk", "reversible"],
                     },
@@ -69,6 +68,7 @@ ANALYSIS_WITH_COMPONENTS_SCHEMA: dict[str, Any] = {
                                         "expected": {"type": "string"},
                                         "type": {"type": "string"},
                                     },
+                                    "required": ["name", "type"],
                                 },
                             },
                             "rollbackPlan": {
@@ -79,6 +79,7 @@ ANALYSIS_WITH_COMPONENTS_SCHEMA: dict[str, Any] = {
                                 },
                             },
                         },
+                        "required": ["description"],
                     },
                     "rbac": {
                         "type": "object",
