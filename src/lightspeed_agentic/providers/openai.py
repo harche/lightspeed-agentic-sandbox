@@ -222,6 +222,15 @@ class OpenAIProvider(AgentProvider):
 
         if options.output_schema:
             agent_kwargs["output_type"] = _RawJsonSchema(options.output_schema)
+            # Strict OpenAI-compatible servers (vLLM) enforce response_format from the first
+            # token, which suppresses tool calls when an output schema is set. Defer structured
+            # output: let the model call tools first, then structure the final answer.
+            if not _is_native_openai():
+                from agents import ModelSettings
+
+                agent_kwargs["model_settings"] = ModelSettings(
+                    defer_structured_output_until_done=True
+                )
 
         agent = SandboxAgent(**agent_kwargs)
 
