@@ -220,7 +220,13 @@ class OpenAIProvider(AgentProvider):
             "default_manifest": manifest,
         }
 
-        if options.output_schema:
+        # vLLM (and other strict OpenAI-compatible servers) enforce response_format from the
+        # first generated token, which overrides tool_choice and suppresses tool calls. So when
+        # talking to a non-native endpoint, defer structured output: let the agent call tools
+        # freely (no output_type), then reformat the final answer into the schema in a second
+        # pass where no tools compete with the guided-decoding grammar.
+        defer_structured = bool(options.output_schema) and not _is_native_openai()
+        if options.output_schema and not defer_structured:
             agent_kwargs["output_type"] = _RawJsonSchema(options.output_schema)
 
         agent = SandboxAgent(**agent_kwargs)
@@ -238,6 +244,7 @@ class OpenAIProvider(AgentProvider):
             run_config=run_config,
         )
 
+        tool_outputs: list[str] = []
         async for event in result.stream_events():
             if isinstance(event, RawResponsesStreamEvent):
                 if isinstance(event.data, ResponseTextDeltaEvent) and event.data.delta:
@@ -253,17 +260,56 @@ class OpenAIProvider(AgentProvider):
                     args = getattr(raw, "arguments", None) or ""
                     yield ToolCallEvent(name=name, input=args[:TOOL_INPUT_MAX_CHARS])
                 elif isinstance(event.item, ToolCallOutputItem):
-                    yield ToolResultEvent(
-                        output=stringify(event.item.output)[:TOOL_OUTPUT_MAX_CHARS]
-                    )
+                    full_output = stringify(event.item.output)
+                    tool_outputs.append(full_output)
+                    yield ToolResultEvent(output=full_output[:TOOL_OUTPUT_MAX_CHARS])
 
         yield ContentBlockStopEvent()
 
         usage = result.context_wrapper.usage
+        final_text = stringify(result.final_output)
+
+        if defer_structured:
+            # Give the reformatter the full tool outputs (not just the summary) so no
+            # data gathered during tool use is lost when projecting into the schema.
+            context = final_text
+            if tool_outputs:
+                context = final_text + "\n\nTool outputs:\n" + "\n\n".join(tool_outputs)
+            final_text = await self._reformat_structured(
+                options.model, context, options.output_schema
+            )
 
         yield ResultEvent(
-            text=stringify(result.final_output),
+            text=final_text,
             cost_usd=0,
             input_tokens=usage.input_tokens,
             output_tokens=usage.output_tokens,
         )
+
+    async def _reformat_structured(
+        self, model: str, answer: str, schema: dict[str, Any]
+    ) -> str:
+        """Second pass: convert the agent's final answer into the required JSON schema.
+
+        Run after all tool calls are done, so response_format guided decoding no longer
+        competes with (and suppresses) tool calls. Uses only facts from the answer.
+        """
+        strict_schema = _make_strict(schema)
+        resp = await self._client.chat.completions.create(
+            model=model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Convert the assistant's answer into JSON conforming to the schema. "
+                        "Use only information present in the answer; do not invent values."
+                    ),
+                },
+                {"role": "user", "content": answer},
+            ],
+            response_format={
+                "type": "json_schema",
+                "json_schema": {"name": "output", "schema": strict_schema, "strict": True},
+            },
+        )
+        return resp.choices[0].message.content or answer
