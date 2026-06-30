@@ -20,7 +20,11 @@ dependencies = [
 [project.optional-dependencies]
 claude = ["claude-agent-sdk>=0.1.81"]
 gemini = ["google-adk>=1.33.0"]
-openai = ["openai-agents>=0.17.2"]
+# Pinned to the fork/PR branch that adds ModelSettings.defer_structured_output_until_done
+# (openai/openai-agents-python#3710). Revert to a released ">=0.17.2"-style pin once merged.
+openai = [
+    "openai-agents @ git+https://github.com/harche/openai-agents-python.git@feat/defer-structured-output-until-done",
+]
 all = ["lightspeed-agentic[claude,gemini,openai]"]
 dev = [
     "pytest>=9.0.3",
