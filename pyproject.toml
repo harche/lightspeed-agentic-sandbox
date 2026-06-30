@@ -47,6 +47,12 @@ e2e = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/lightspeed_agentic"]
 
+[tool.hatch.metadata]
+# The `openai` extra pins openai-agents to a git ref (PEP 508 direct reference) while the
+# defer_structured_output_until_done change is unreleased; hatchling rejects direct references
+# unless this is enabled. Drop once the SDK change is released and the pin returns to a version.
+allow-direct-references = true
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"
